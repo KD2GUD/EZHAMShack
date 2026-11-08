@@ -42,7 +42,7 @@ A modern, lightweight, cross-platform amateur radio station dashboard and hardwa
                               │ Physical USB / Serial
   ┌───────────────────────────▼─────────────────────────────┐
   │                 EZHAMShack Python Daemon                │
-  │  ├── Serial Engine (Async queue & relay pacing)        │
+  │  ├── Serial Engine (Async queue & relay pacing)         │
   │  ├── SGP4 Satellite Doppler & Split Control             │
   │  ├── Hamlib rigctld Emulator (TCP: 127.0.0.1:4532)      │ ◄── WSJT-X / FLDIGI
   │  ├── WSJT-X UDP Listener (Port 2237)                    │
