@@ -1,0 +1,2109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>RigDeck / ShackOS - Amateur Radio Operations Dashboard</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts for Digital Shack & Avionics Aesthetics -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;600;700&family=Inter:wght@300;400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            shack: {
+              950: '#070a0f',
+              900: '#0c1017',
+              850: '#111722',
+              800: '#161f30',
+              700: '#222f46',
+              600: '#334460',
+              border: '#1f2c42'
+            },
+            amber: {
+              400: '#fbbf24',
+              500: '#f59e0b',
+              glow: '#ffb703'
+            },
+            vfo: {
+              cyan: '#00f0ff',
+              green: '#00ff9d',
+              amber: '#ffaa00'
+            }
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['Share Tech Mono', 'monospace'],
+            lcd: ['Chakra Petch', 'Share Tech Mono', 'monospace']
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbar */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0c1017;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #222f46;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #3b5072;
+    }
+
+    /* VFO LCD Glow */
+    .lcd-text {
+      font-family: 'Chakra Petch', 'Share Tech Mono', monospace;
+      letter-spacing: 0.04em;
+      text-shadow: 0 0 10px rgba(0, 240, 255, 0.45);
+    }
+    .lcd-amber {
+      text-shadow: 0 0 10px rgba(245, 158, 11, 0.45);
+    }
+    .lcd-green {
+      text-shadow: 0 0 10px rgba(0, 255, 157, 0.45);
+    }
+
+    /* Red Vision Tactical Night Shack Mode */
+    body.night-mode {
+      background-color: #060202 !important;
+      color: #fca5a5 !important;
+    }
+    body.night-mode .bg-shack-950,
+    body.night-mode .bg-shack-900,
+    body.night-mode .bg-shack-850,
+    body.night-mode .bg-shack-800 {
+      background-color: #120404 !important;
+      border-color: #450a0a !important;
+    }
+    body.night-mode .border-shack-border,
+    body.night-mode .border-shack-700 {
+      border-color: #450a0a !important;
+    }
+    body.night-mode .text-cyan-400,
+    body.night-mode .text-vfo-cyan,
+    body.night-mode .text-amber-400,
+    body.night-mode .text-amber-500,
+    body.night-mode .text-emerald-400,
+    body.night-mode .text-green-400 {
+      color: #ef4444 !important;
+      text-shadow: 0 0 8px rgba(239, 68, 68, 0.5) !important;
+    }
+    body.night-mode iframe {
+      filter: invert(0.9) hue-rotate(170deg) contrast(1.2) brightness(0.85);
+    }
+
+    /* Pulse animation */
+    @keyframes pulse-subtle {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    .animate-pulse-subtle {
+      animation: pulse-subtle 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+    }
+  </style>
+</head>
+<body class="bg-shack-950 text-slate-200 min-h-screen flex flex-col font-sans select-none antialiased">
+
+  <!-- ================= TOP SHACK STATUS / HEADER ================= -->
+  <header class="bg-shack-900 border-b border-shack-border px-3 sm:px-4 py-2 sticky top-0 z-30 shadow-lg">
+    <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-3">
+      
+      <!-- Brand & Operator Identity Badge -->
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2">
+          <div class="w-8 h-8 rounded bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center font-lcd font-bold text-black text-lg shadow-sm">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+            </svg>
+          </div>
+          <div>
+            <div class="flex items-center gap-1.5">
+              <span class="font-lcd font-bold tracking-wider text-base text-white">RIGDECK</span>
+              <span class="text-[10px] font-mono uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1 rounded">OS v0.2.4</span>
+            </div>
+            <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1.5">
+              <span>SHACK CONSOLE</span>
+              <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse-subtle"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Operator Quick Badge -->
+        <button id="operatorBadgeBtn" onclick="openSettingsModal('profile')" title="Click to edit station profile" class="flex items-center gap-2 bg-shack-800 hover:bg-shack-700 transition border border-shack-border px-2.5 py-1 rounded text-left">
+          <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+          <div>
+            <div class="font-lcd font-bold text-amber-400 text-sm leading-tight tracking-wider" id="hdrCallsign">KD2GUD</div>
+            <div class="text-[10px] font-mono text-slate-400 leading-tight" id="hdrGrid">FN13XW</div>
+          </div>
+          <svg class="w-3.5 h-3.5 text-slate-500 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+        </button>
+      </div>
+
+      <!-- Live VFO / Transceiver Telemetry Display -->
+      <div class="flex items-center bg-shack-950 border border-shack-border rounded px-3 py-1.5 shadow-inner">
+        
+        <!-- VFO A / VFO B Toggle -->
+        <div class="inline-flex rounded border border-shack-700 bg-shack-900 p-0.5 text-[10px] font-mono font-bold mr-3">
+          <button id="btnVfoA" onclick="setVfo('A')" title="Switch to VFO A" class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition">VFO A</button>
+          <button id="btnVfoB" onclick="setVfo('B')" title="Switch to VFO B" class="px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition">VFO B</button>
+        </div>
+
+        <!-- Interactive Digit-Box Frequency Readout -->
+        <div class="flex items-center mr-3">
+          <div id="vfoFrequency" class="flex items-center select-none">
+            <!-- Rendered dynamically -->
+          </div>
+          <span class="text-xs font-mono text-cyan-400/80 ml-1.5">MHz</span>
+        </div>
+
+        <div class="h-6 w-px bg-shack-800 mx-1"></div>
+
+        <!-- Mode & Band Badges with Quick Popovers -->
+        <div class="flex items-center gap-1.5 px-2">
+          
+          <!-- Band Selector Dropdown Container -->
+          <div class="relative">
+            <button id="vfoBandBtn" onclick="toggleBandDropdown(event)" title="Click to quickly switch bands" class="bg-shack-800 hover:bg-shack-700 border border-shack-700 text-amber-400 hover:text-amber-300 font-mono text-xs px-2 py-0.5 rounded font-bold cursor-pointer transition flex items-center gap-1">
+              <span id="vfoBand">20m</span>
+              <span class="text-[9px] text-slate-400">▾</span>
+            </button>
+            <div id="bandDropdown" class="hidden absolute left-0 mt-2 w-56 bg-shack-900 border border-shack-border rounded shadow-2xl p-2 z-50 font-mono text-xs">
+              <div class="text-[10px] text-slate-400 font-bold uppercase pb-1 mb-1 border-b border-shack-800 flex justify-between">
+                <span>SELECT BAND</span>
+                <span class="text-cyan-400">HF / VHF / UHF</span>
+              </div>
+              <div class="grid grid-cols-4 gap-1 text-center">
+                <button onclick="selectBand('160m', 1840000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">160m</button>
+                <button onclick="selectBand('80m', 3573000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">80m</button>
+                <button onclick="selectBand('60m', 5357000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">60m</button>
+                <button onclick="selectBand('40m', 7074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">40m</button>
+                <button onclick="selectBand('30m', 10136000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">30m</button>
+                <button onclick="selectBand('20m', 14074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400 font-bold">20m</button>
+                <button onclick="selectBand('17m', 18100000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">17m</button>
+                <button onclick="selectBand('15m', 21074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">15m</button>
+                <button onclick="selectBand('12m', 24915000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">12m</button>
+                <button onclick="selectBand('10m', 28074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">10m</button>
+                <button onclick="selectBand('6m', 50313000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">6m</button>
+                <button onclick="selectBand('2m', 144200000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">2m</button>
+                <button onclick="selectBand('70cm', 432100000)" class="col-span-2 p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">70cm</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Mode Selector Dropdown Container -->
+          <div class="relative">
+            <button id="vfoModeBtn" onclick="toggleModeDropdown(event)" title="Click to quickly switch operating mode" class="bg-cyan-950 hover:bg-cyan-900 border border-cyan-800/60 text-cyan-300 hover:text-cyan-200 font-mono text-xs px-2 py-0.5 rounded font-bold cursor-pointer transition flex items-center gap-1">
+              <span id="vfoMode">USB</span>
+              <span class="text-[9px] text-cyan-400">▾</span>
+            </button>
+            <div id="modeDropdown" class="hidden absolute left-0 mt-2 w-44 bg-shack-900 border border-shack-border rounded shadow-2xl p-2 z-50 font-mono text-xs">
+              <div class="text-[10px] text-slate-400 font-bold uppercase pb-1 mb-1 border-b border-shack-800">
+                SELECT MODE
+              </div>
+              <div class="grid grid-cols-2 gap-1 text-center">
+                <button onclick="selectMode('USB')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400 font-bold">USB</button>
+                <button onclick="selectMode('LSB')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">LSB</button>
+                <button onclick="selectMode('CW')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">CW</button>
+                <button onclick="selectMode('DATA-U')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">DATA-U</button>
+                <button onclick="selectMode('AM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">AM</button>
+                <button onclick="selectMode('FM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">FM</button>
+                <button onclick="selectMode('C4FM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">C4FM</button>
+                <button onclick="selectMode('RTTY')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">RTTY</button>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <div class="h-6 w-px bg-shack-800 mx-1"></div>
+
+        <!-- Rig Link Status -->
+        <div class="flex items-center gap-1.5 pl-2">
+          <div class="flex flex-col">
+            <span class="text-[9px] font-mono text-slate-400 uppercase leading-none">RIG LINK</span>
+            <div class="flex items-center gap-1">
+              <span id="rigStatusIndicator" class="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]"></span>
+              <span id="rigStatusText" class="text-[11px] font-mono text-red-400 font-bold">WS OFFLINE</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Solar & Space Weather Micro Ticker -->
+      <div class="hidden lg:flex items-center gap-3 bg-shack-850 border border-shack-border px-3 py-1.5 rounded font-mono text-xs">
+        <div class="flex items-center gap-1 text-slate-400">
+          <svg class="w-4 h-4 text-amber-500" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M10 2a1 1 0 011 1v1a1 1 0 11-2 0V3a1 1 0 011-1zm4 8a4 4 0 11-8 0 4 4 0 018 0zm-.464 4.95l.707.707a1 1 0 001.414-1.414l-.707-.707a1 1 0 00-1.414 1.414zm2.12-10.607a1 1 0 010 1.414l-.706.707a1 1 0 11-1.414-1.414l.707-.707a1 1 0 011.414 0zM17 11a1 1 0 100-2h-1a1 1 0 100 2h1zm-7 4a1 1 0 011 1v1a1 1 0 11-2 0v-1a1 1 0 011-1zM5.05 6.464A1 1 0 106.465 5.05l-.708-.707a1 1 0 00-1.414 1.414l.707.707zm1.414 8.486l-.707.707a1 1 0 01-1.414-1.414l.707-.707a1 1 0 011.414 1.414zM4 11a1 1 0 100-2H3a1 1 0 000 2h1z" clip-rule="evenodd"/></svg>
+          <span class="font-bold text-slate-300">SOLAR:</span>
+        </div>
+        <div title="Solar Flux Index">SFI: <span id="hdrSfi" class="text-amber-400 font-bold">164</span></div>
+        <div class="text-slate-600">|</div>
+        <div title="Sunspot Number">SSN: <span id="hdrSsn" class="text-amber-400 font-bold">138</span></div>
+        <div class="text-slate-600">|</div>
+        <div title="A-Index">A: <span id="hdrAIndex" class="text-slate-300 font-bold">6</span></div>
+        <div class="text-slate-600">|</div>
+        <div title="Geomagnetic K-Index" class="flex items-center gap-1">
+          K: <span id="hdrKIndex" class="px-1.5 py-0.2 rounded text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800">2 Q</span>
+        </div>
+      </div>
+
+      <!-- Live Zulu / UTC Clock -->
+      <div class="flex items-center gap-3">
+        <div class="text-right">
+          <div class="flex items-baseline gap-1">
+            <span id="utcClock" class="font-lcd text-lg sm:text-xl font-bold text-amber-400 lcd-amber leading-none">00:00:00</span>
+            <span class="text-xs font-mono font-bold text-amber-500">Z</span>
+          </div>
+          <div class="text-[10px] font-mono text-slate-400 flex items-center justify-end gap-1.5">
+            <span id="utcDate">-- --- ----</span>
+            <span class="text-slate-600">•</span>
+            <span id="localClock" class="text-slate-400">LOC --:--</span>
+          </div>
+        </div>
+
+        <!-- Master Action Buttons -->
+        <div class="flex items-center gap-1.5 border-l border-shack-border pl-3">
+          <button onclick="openAddPaneModal()" class="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-black px-2.5 py-1.5 rounded font-medium text-xs font-mono transition shadow-sm" title="Add a new dashboard pane">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
+            <span class="hidden sm:inline">Add Pane</span>
+          </button>
+
+          <div class="relative">
+            <button id="presetBtn" onclick="toggleDropdown('presetDropdown')" class="flex items-center gap-1 bg-shack-800 hover:bg-shack-700 text-slate-200 border border-shack-border px-2.5 py-1.5 rounded text-xs font-mono transition" title="Load layout preset">
+              <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/></svg>
+              <span class="hidden md:inline">Presets</span>
+            </button>
+            <div id="presetDropdown" class="hidden absolute right-0 mt-2 w-48 bg-shack-900 border border-shack-border rounded shadow-2xl py-1 z-50 text-xs font-mono">
+              <div class="px-3 py-1.5 text-slate-400 font-bold border-b border-shack-800">SHACK WORKFLOWS</div>
+              <button onclick="applyPreset('dxHunter')" class="w-full text-left px-3 py-2 hover:bg-shack-800 text-slate-200 flex items-center justify-between">
+                <span>🎯 DX Hunter</span>
+                <span class="text-[10px] text-slate-400">VOACAP+DX</span>
+              </button>
+              <button onclick="applyPreset('ft8Digital')" class="w-full text-left px-3 py-2 hover:bg-shack-800 text-slate-200 flex items-center justify-between">
+                <span>📡 FT8 / Digital Ops</span>
+                <span class="text-[10px] text-slate-400">PSK+RBN</span>
+              </button>
+              <button onclick="applyPreset('contestMaster')" class="w-full text-left px-3 py-2 hover:bg-shack-800 text-slate-200 flex items-center justify-between">
+                <span>🏆 Contesting Mode</span>
+                <span class="text-[10px] text-slate-400">Logger+Grid</span>
+              </button>
+              <button onclick="applyPreset('casualRagchew')" class="w-full text-left px-3 py-2 hover:bg-shack-800 text-slate-200 flex items-center justify-between">
+                <span>☕ HF Ragchew</span>
+                <span class="text-[10px] text-slate-400">Solar+Weather</span>
+              </button>
+            </div>
+          </div>
+
+          <button id="nightModeBtn" onclick="toggleNightMode()" class="bg-shack-800 hover:bg-shack-700 border border-shack-border p-1.5 rounded text-slate-300 hover:text-red-400 transition" title="Toggle Tactical Red Night Shack Mode">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
+          </button>
+
+          <button onclick="openSettingsModal('profile')" class="bg-shack-800 hover:bg-shack-700 border border-shack-border p-1.5 rounded text-slate-300 hover:text-white transition" title="Settings & Hardware Configuration">
+            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </header>
+
+  <!-- ================= MAIN DASHBOARD GRID ================= -->
+  <main class="flex-1 p-3 sm:p-4 max-w-[1920px] w-full mx-auto">
+    <div id="panesContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"></div>
+
+    <div id="emptyState" class="hidden text-center py-20 bg-shack-900/60 border border-dashed border-shack-700 rounded-lg max-w-lg mx-auto mt-12">
+      <div class="text-4xl mb-3">📡</div>
+      <h3 class="text-lg font-bold text-slate-200 mb-1">Your Dashboard is Empty</h3>
+      <p class="text-sm text-slate-400 mb-4">Add tools like PSK Reporter, VOACAP, QSO QuickLog, or load a preset layout.</p>
+      <div class="flex items-center justify-center gap-3">
+        <button onclick="openAddPaneModal()" class="px-4 py-2 bg-amber-500 hover:bg-amber-400 text-black text-xs font-mono font-bold rounded">
+          + Add First Pane
+        </button>
+        <button onclick="applyPreset('dxHunter')" class="px-4 py-2 bg-shack-800 hover:bg-shack-700 border border-shack-700 text-slate-200 text-xs font-mono rounded">
+          Load DX Hunter Preset
+        </button>
+      </div>
+    </div>
+  </main>
+
+  <div id="toastContainer" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+
+  <!-- ================= MODALS & POPUPS ================= -->
+
+  <!-- 1. ADD PANE MODAL -->
+  <div id="addPaneModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-shack-900 border border-shack-border w-full max-w-3xl rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div class="px-4 py-3 bg-shack-850 border-b border-shack-border flex items-center justify-between">
+        <div class="flex items-center gap-2">
+          <span class="text-amber-500 text-lg">⚡</span>
+          <h3 class="font-lcd font-bold text-white text-base">Add Pane to RigDeck</h3>
+        </div>
+        <button onclick="closeModal('addPaneModal')" class="text-slate-400 hover:text-white text-xl leading-none">&times;</button>
+      </div>
+
+      <div class="p-4 overflow-y-auto flex-1 space-y-4">
+        <div>
+          <div class="text-xs font-mono text-slate-400 mb-2 uppercase font-bold tracking-wider">Select from Pane Catalog</div>
+          <div id="paneCatalogList" class="grid grid-cols-1 sm:grid-cols-2 gap-3"></div>
+        </div>
+
+        <div class="pt-4 border-t border-shack-border">
+          <div class="text-xs font-mono text-slate-400 mb-2 uppercase font-bold tracking-wider">Or Add Custom URL / Web Tool</div>
+          <div class="bg-shack-850 border border-shack-border rounded p-3 space-y-3">
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs font-mono text-slate-400 mb-1">Pane Title</label>
+                <input type="text" id="customPaneTitle" placeholder="e.g., Local Weather Radar" class="w-full bg-shack-950 border border-shack-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 font-sans">
+              </div>
+              <div>
+                <label class="block text-xs font-mono text-slate-400 mb-1">Initial Height</label>
+                <select id="customPaneHeight" class="w-full bg-shack-950 border border-shack-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 font-mono">
+                  <option value="h-72">Compact (288px)</option>
+                  <option value="h-96" selected>Standard (384px)</option>
+                  <option value="h-[520px]">Tall (520px)</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label class="block text-xs font-mono text-slate-400 mb-1">Tool URL (Supports {callsign}, {grid}, {freq}, {band})</label>
+              <input type="text" id="customPaneUrl" placeholder="https://example.com/map?call={callsign}" class="w-full bg-shack-950 border border-shack-700 rounded px-2.5 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500 font-mono">
+            </div>
+            <button onclick="addCustomUrlPane()" class="w-full py-2 bg-amber-500 hover:bg-amber-400 text-black font-mono font-bold text-xs rounded transition">
+              + Insert Custom Pane
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div class="px-4 py-2.5 bg-shack-850 border-t border-shack-border text-right">
+        <button onclick="closeModal('addPaneModal')" class="px-3 py-1.5 bg-shack-800 hover:bg-shack-700 text-slate-300 text-xs font-mono rounded">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 2. FULL SETTINGS & RIG CONFIG MODAL -->
+  <div id="settingsModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4">
+    <div class="bg-shack-900 border border-shack-border w-full max-w-4xl rounded-lg shadow-2xl overflow-hidden flex flex-col max-h-[92vh]">
+      <div class="px-5 py-3.5 bg-shack-850 border-b border-shack-border flex items-center justify-between">
+        <div class="flex items-center gap-2.5">
+          <svg class="w-5 h-5 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
+          <h3 class="font-lcd font-bold text-white text-base">RigDeck Master Settings</h3>
+        </div>
+        <button onclick="closeModal('settingsModal')" class="text-slate-400 hover:text-white text-2xl leading-none">&times;</button>
+      </div>
+
+      <div class="flex border-b border-shack-border bg-shack-950 px-4 text-xs font-mono overflow-x-auto">
+        <button onclick="switchSettingsTab('profile')" id="tabBtn-profile" class="px-4 py-2.5 border-b-2 border-amber-500 text-amber-400 font-bold">Station Profile</button>
+        <button onclick="switchSettingsTab('rig')" id="tabBtn-rig" class="px-4 py-2.5 border-b-2 border-transparent text-slate-400 hover:text-slate-200">Radio & Bridge</button>
+        <button onclick="switchSettingsTab('panes')" id="tabBtn-panes" class="px-4 py-2.5 border-b-2 border-transparent text-slate-400 hover:text-slate-200">Pane Management</button>
+        <button onclick="switchSettingsTab('backup')" id="tabBtn-backup" class="px-4 py-2.5 border-b-2 border-transparent text-slate-400 hover:text-slate-200">Export & Storage</button>
+      </div>
+
+      <div class="p-5 overflow-y-auto flex-1 space-y-5 text-xs">
+        
+        <!-- Tab 1: Station Profile -->
+        <div id="tabContent-profile" class="space-y-4">
+          <div class="bg-shack-850 p-4 rounded border border-shack-border">
+            <h4 class="font-bold text-slate-200 font-mono uppercase mb-3 text-sm flex items-center gap-2">
+              <span class="w-2 h-2 rounded-full bg-amber-400"></span> Operator Identity & QTH Location
+            </h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Station Call Sign *</label>
+                <input type="text" id="cfgCallsign" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-amber-400 font-mono font-bold uppercase tracking-wider text-sm focus:outline-none focus:border-amber-500" value="KD2GUD">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Maidenhead Grid Square *</label>
+                <div class="flex gap-2">
+                  <input type="text" id="cfgGrid" oninput="updateLatLonFromGrid(this.value)" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-cyan-400 font-mono font-bold uppercase tracking-wider text-sm focus:outline-none focus:border-amber-500" value="FN13xw">
+                  <button onclick="calculateCoordsFromCurrentGrid()" class="px-2.5 py-1 bg-shack-800 hover:bg-shack-700 border border-shack-700 rounded font-mono text-slate-300">Calc</button>
+                </div>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">City / QTH *</label>
+                <input type="text" id="cfgCity" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none focus:border-amber-500" value="Watertown">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">State / Province *</label>
+                <input type="text" id="cfgState" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono uppercase focus:outline-none focus:border-amber-500" value="NY">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Country (DXCC) *</label>
+                <input type="text" id="cfgCountry" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono uppercase focus:outline-none focus:border-amber-500" value="USA">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">CQ Zone / TX Power (Watts)</label>
+                <div class="grid grid-cols-2 gap-2">
+                  <input type="text" id="cfgCqz" placeholder="Zone" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none focus:border-amber-500" value="5">
+                  <input type="text" id="cfgPower" placeholder="Watts" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none focus:border-amber-500" value="100">
+                </div>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Latitude (Decimal)</label>
+                <input type="number" step="0.0001" id="cfgLat" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none" value="43.9748">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Longitude (Decimal)</label>
+                <input type="number" step="0.0001" id="cfgLon" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none" value="-75.9108">
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-shack-850 p-4 rounded border border-shack-border">
+            <h4 class="font-bold text-slate-200 font-mono uppercase mb-3 text-sm">Station Equipment & Notes</h4>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Primary Transceiver</label>
+                <input type="text" id="cfgRigName" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono" value="Yaesu FT-991A">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Antenna System</label>
+                <input type="text" id="cfgAntenna" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono" value="Wire Dipole">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab 2: Radio & Bridge Config -->
+        <div id="tabContent-rig" class="hidden space-y-4">
+          <div class="bg-shack-850 p-4 rounded border border-shack-border space-y-3">
+            <h4 class="font-bold text-slate-200 font-mono uppercase text-sm flex items-center justify-between">
+              <span>CAT / Log Software Integration</span>
+              <span class="text-[11px] font-mono text-cyan-400 bg-cyan-950 border border-cyan-800 px-2 py-0.5 rounded">Universal Sync</span>
+            </h4>
+            <p class="text-slate-400 text-xs">
+              RigDeck monitors radio frequency, band, and mode directly via WebSockets. Connected to <code class="text-amber-400">flrig_bridge.py</code>.
+            </p>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Software Protocol</label>
+                <select id="cfgRadioSoftware" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-white font-mono">
+                  <option value="flrig" selected>FLRIG WebSocket Bridge (ws://127.0.0.1:8088)</option>
+                  <option value="sim">Built-in Internal Radio Simulator</option>
+                  <option value="n1mm">N1MM Logger+ (Radio Info UDP)</option>
+                  <option value="wsjtx">WSJT-X / JTDX (UDP Status Broadcast)</option>
+                </select>
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Bridge WebSocket Port</label>
+                <input type="number" id="cfgRadioPort" value="8088" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono">
+              </div>
+            </div>
+          </div>
+
+          <div class="bg-shack-950 p-4 rounded border border-shack-border">
+            <div class="flex items-center justify-between mb-2">
+              <span class="font-mono text-amber-400 font-bold uppercase text-[11px]">Active FLRIG Bridge Target</span>
+              <button onclick="connectBridgeWebSocket()" class="px-2 py-1 bg-shack-800 hover:bg-shack-700 border border-shack-700 rounded text-[10px] font-mono text-slate-300">
+                🔄 Reconnect Socket
+              </button>
+            </div>
+            <p class="text-[11px] text-slate-400 mb-2 font-mono">
+              Bridge script path: <code class="text-slate-200">C:\rigdeck\flrig_bridge.py</code>. Relays FLRIG XML-RPC (12345) to WebSocket (8088) and writes logs to <code class="text-amber-400">C:\rigdeck\shack_log.adi</code>.
+            </p>
+          </div>
+        </div>
+
+        <!-- Tab 3: Pane Manager -->
+        <div id="tabContent-panes" class="hidden space-y-4">
+          <div class="bg-shack-850 p-4 rounded border border-shack-border">
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="font-bold text-slate-200 font-mono uppercase text-sm">Active Panes Configuration</h4>
+              <button onclick="openAddPaneModal()" class="px-2.5 py-1 bg-amber-500 hover:bg-amber-400 text-black font-bold font-mono text-xs rounded">
+                + Add Another Pane
+              </button>
+            </div>
+            <div id="settingsPanesList" class="space-y-2"></div>
+          </div>
+        </div>
+
+        <!-- Tab 4: Export / Storage -->
+        <div id="tabContent-backup" class="hidden space-y-4">
+          <div class="bg-shack-850 p-4 rounded border border-shack-border">
+            <h4 class="font-bold text-slate-200 font-mono uppercase mb-2 text-sm">Local Configuration & Cloud Export</h4>
+            <p class="text-slate-400 mb-4 text-xs">
+              RigDeck stores all dashboard states, custom links, station profile, and quick logbooks directly in your browser's local sandbox (<code class="text-amber-400">localStorage</code>).
+            </p>
+            <div class="flex flex-wrap gap-2.5">
+              <button onclick="exportConfigJson()" class="px-3 py-2 bg-shack-800 hover:bg-shack-700 border border-shack-700 font-mono font-bold text-slate-200 rounded">
+                📥 Export Config to JSON
+              </button>
+              <label class="px-3 py-2 bg-shack-800 hover:bg-shack-700 border border-shack-700 font-mono font-bold text-slate-200 rounded cursor-pointer">
+                📤 Import Config JSON
+                <input type="file" id="importConfigInput" accept=".json" onchange="importConfigJson(event)" class="hidden">
+              </label>
+              <button onclick="resetFactoryDefaults()" class="px-3 py-2 bg-red-950/60 hover:bg-red-900 border border-red-800 text-red-300 font-mono font-bold rounded">
+                ⚠️ Reset Factory Defaults
+              </button>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="px-5 py-3 bg-shack-850 border-t border-shack-border flex items-center justify-between">
+        <span class="text-[11px] font-mono text-slate-500">Auto-saved to client browser storage</span>
+        <div class="flex gap-2">
+          <button onclick="closeModal('settingsModal')" class="px-3 py-1.5 bg-shack-800 hover:bg-shack-700 text-slate-300 text-xs font-mono rounded">Cancel</button>
+          <button onclick="saveAllSettings()" class="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-mono font-bold text-xs rounded shadow">Save & Apply</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 3. FRAME SHIELD OVERLAY MODAL -->
+  <div id="frameShieldModal" class="hidden fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-shack-900 border border-shack-border w-full max-w-md rounded-lg shadow-2xl p-5 text-center">
+      <div class="w-12 h-12 rounded-full bg-amber-500/20 text-amber-400 flex items-center justify-center mx-auto mb-3 text-xl font-bold">
+        🛡️
+      </div>
+      <h3 class="font-lcd font-bold text-white text-base mb-1" id="shieldModalTitle">External Service Embedding</h3>
+      <p class="text-xs text-slate-400 mb-4" id="shieldModalDesc">
+        Many external ham web services implement strict <code class="text-amber-400">X-Frame-Options: SAMEORIGIN</code> headers that block browser iframe embedding.
+      </p>
+      <div class="bg-shack-950 p-2.5 rounded border border-shack-border mb-4 text-left font-mono text-[11px] text-slate-300 break-all" id="shieldModalUrl">
+        --
+      </div>
+      <div class="flex gap-2 justify-center">
+        <button onclick="closeModal('frameShieldModal')" class="px-3 py-1.5 bg-shack-800 text-slate-300 rounded font-mono text-xs">Dismiss</button>
+        <button id="shieldOpenWindowBtn" class="px-4 py-1.5 bg-amber-500 hover:bg-amber-400 text-black font-bold font-mono text-xs rounded">
+          Pop Out Dedicated Window ↗
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ================= JAVASCRIPT APPLICATION CORE ================= -->
+  <script>
+    const DEFAULT_CATALOG = [
+      {
+        id: 'psk_reporter',
+        title: 'PSK Reporter (Live FT8/Digital Map)',
+        category: 'Propagation & Reception',
+        description: 'Global real-time map of automatic digital reception spots filtered to your callsign.',
+        isNative: false,
+        urlTemplate: 'https://pskreporter.info/pskmap.html?call={callsign}',
+        defaultHeight: 'h-96'
+      },
+      {
+        id: 'voacap_hf',
+        title: 'VOACAP HF Propagation Planner',
+        category: 'Propagation & Modeling',
+        description: 'Professional high-frequency point-to-point path prediction engine & band charts.',
+        isNative: false,
+        urlTemplate: 'https://www.voacap.com/hf/',
+        defaultHeight: 'h-96'
+      },
+      {
+        id: 'dx_maps',
+        title: 'DX Maps VHF/HF Live Spots',
+        category: 'Propagation & Reception',
+        description: 'Real-time propagation maps highlighting sporadic-E, tropospheric, and F2 openings.',
+        isNative: false,
+        urlTemplate: 'https://www.dxmaps.com/spots/map.php',
+        defaultHeight: 'h-96'
+      },
+      {
+        id: 'lightning_maps',
+        title: 'Real-time Lightning & QRN Map',
+        category: 'Weather & QRN',
+        description: 'Live atmospheric discharge tracking across the globe to identify RF static.',
+        isNative: false,
+        urlTemplate: 'https://www.lightningmaps.org/',
+        defaultHeight: 'h-96'
+      },
+      {
+        id: 'rbn_spots',
+        title: 'Reverse Beacon Network (RBN)',
+        category: 'CW & Skimmer',
+        description: 'Automated CW, RTTY, and FT8 receiver network spots with SNR reports.',
+        isNative: false,
+        urlTemplate: 'https://www.reversebeacon.net/main.php?rows=25&spot={callsign}',
+        defaultHeight: 'h-96'
+      },
+      {
+        id: 'solar_monitor',
+        title: 'Native Solar & Space Weather Station',
+        category: 'Native Widgets',
+        description: 'Built-in real-time gauges for SFI, Geomagnetic Kp, A-index, Sunspot Count, and Aurora alert.',
+        isNative: true,
+        widgetType: 'solarMonitor',
+        defaultHeight: 'h-80'
+      },
+      {
+        id: 'qso_logger',
+        title: 'Native QuickLog & ADIF Exporter',
+        category: 'Native Widgets',
+        description: 'Lightning-fast in-shack scratch logger with automatic UTC timestamping & ADIF file generation.',
+        isNative: true,
+        widgetType: 'qsoLogger',
+        defaultHeight: 'h-96'
+      },
+      {
+        id: 'great_circle',
+        title: 'Native Bearing & Great Circle Calc',
+        category: 'Native Widgets',
+        description: 'Calculate antenna beam heading, true azimuth, and distance in km/miles between Maidenhead squares.',
+        isNative: true,
+        widgetType: 'greatCircle',
+        defaultHeight: 'h-96'
+      },
+      {
+        id: 'udp_monitor',
+        title: 'Native Radio UDP Stream Terminal',
+        category: 'Native Widgets',
+        description: 'Live hex/decoded telemetry monitor of N1MM RadioInfo & WSJT-X broadcast packets.',
+        isNative: true,
+        widgetType: 'udpMonitor',
+        defaultHeight: 'h-80'
+      },
+      {
+        id: 'shack_scratchpad',
+        title: 'Native Shack Scratchpad & Notes',
+        category: 'Native Widgets',
+        description: 'Instant local notes for schedules, net controls, contest frequencies, and skeds.',
+        isNative: true,
+        widgetType: 'scratchpad',
+        defaultHeight: 'h-72'
+      }
+    ];
+
+    const PRESETS = {
+      dxHunter: [
+        { catalogId: 'voacap_hf', width: 'col-span-1 md:col-span-2' },
+        { catalogId: 'dx_maps', width: 'col-span-1' },
+        { catalogId: 'great_circle', width: 'col-span-1' },
+        { catalogId: 'solar_monitor', width: 'col-span-1 md:col-span-2' },
+        { catalogId: 'qso_logger', width: 'col-span-1 md:col-span-2' }
+      ],
+      ft8Digital: [
+        { catalogId: 'psk_reporter', width: 'col-span-1 md:col-span-2' },
+        { catalogId: 'udp_monitor', width: 'col-span-1' },
+        { catalogId: 'qso_logger', width: 'col-span-1' },
+        { catalogId: 'solar_monitor', width: 'col-span-1' },
+        { catalogId: 'great_circle', width: 'col-span-1' }
+      ],
+      contestMaster: [
+        { catalogId: 'qso_logger', width: 'col-span-1 md:col-span-2' },
+        { catalogId: 'rbn_spots', width: 'col-span-1 md:col-span-2' },
+        { catalogId: 'udp_monitor', width: 'col-span-1' },
+        { catalogId: 'great_circle', width: 'col-span-1' },
+        { catalogId: 'solar_monitor', width: 'col-span-1' },
+        { catalogId: 'shack_scratchpad', width: 'col-span-1' }
+      ],
+      casualRagchew: [
+        { catalogId: 'solar_monitor', width: 'col-span-1' },
+        { catalogId: 'lightning_maps', width: 'col-span-1 md:col-span-2' },
+        { catalogId: 'shack_scratchpad', width: 'col-span-1' },
+        { catalogId: 'qso_logger', width: 'col-span-1 md:col-span-2' }
+      ]
+    };
+
+    let appState = {
+      profile: {
+        callsign: 'KD2GUD',
+        grid: 'FN13xw',
+        lat: 43.9748,
+        lon: -75.9108,
+        city: 'Watertown',
+        state: 'NY',
+        country: 'USA',
+        cqz: '5',
+        power: '100',
+        rigName: 'Yaesu FT-991A',
+        antenna: 'Wire Dipole'
+      },
+      vfo: {
+        active: 'A',
+        vfoA: { frequency: 14074000, mode: 'USB', band: '20m' },
+        vfoB: { frequency: 7074000, mode: 'LSB', band: '40m' },
+        frequency: 14074000,
+        band: '20m',
+        mode: 'USB',
+        isSimulated: false
+      },
+      solar: {
+        sfi: 164,
+        ssn: 138,
+        aIndex: 6,
+        kIndex: 2,
+        status: 'Quiet'
+      },
+      panes: [],
+      qsos: [],
+      scratchpadText: '73 and welcome to RigDeck! Record skeds, QSL addresses, and net notes here.',
+      nightMode: false,
+      radioSoftware: 'flrig',
+      radioPort: 8088
+    };
+
+    let bridgeSocket = null;
+    let tuneLockUntil = 0; // Debounce lock timestamp against telemetry ping-pong
+
+    /* =====================================================================
+       INITIALIZATION & STORAGE PERSISTENCE
+       ===================================================================== */
+    window.addEventListener('DOMContentLoaded', () => {
+      loadStateFromStorage();
+      startClocks();
+      setupHeaderTelemetry();
+      renderPanes();
+      populatePaneCatalog();
+      connectBridgeWebSocket();
+      startSimulatedUDPStream();
+
+      document.addEventListener('click', (e) => {
+        if (!e.target.closest('#presetBtn') && !e.target.closest('#presetDropdown')) {
+          const d = document.getElementById('presetDropdown');
+          if (d) d.classList.add('hidden');
+        }
+        if (!e.target.closest('#vfoBandBtn') && !e.target.closest('#bandDropdown')) {
+          const d = document.getElementById('bandDropdown');
+          if (d) d.classList.add('hidden');
+        }
+        if (!e.target.closest('#vfoModeBtn') && !e.target.closest('#modeDropdown')) {
+          const d = document.getElementById('modeDropdown');
+          if (d) d.classList.add('hidden');
+        }
+      });
+    });
+
+    function saveStateToStorage() {
+      try {
+        localStorage.setItem('RIGDECK_V2_STATE', JSON.stringify(appState));
+      } catch (e) {
+        console.error('Storage save error:', e);
+      }
+    }
+
+    function loadStateFromStorage() {
+      const saved = localStorage.getItem('RIGDECK_V2_STATE');
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          appState = {
+            ...appState,
+            ...parsed,
+            profile: { ...appState.profile, ...(parsed.profile || {}) },
+            vfo: {
+              ...appState.vfo,
+              ...(parsed.vfo || {}),
+              vfoA: { ...appState.vfo.vfoA, ...(parsed.vfo?.vfoA || {}) },
+              vfoB: { ...appState.vfo.vfoB, ...(parsed.vfo?.vfoB || {}) }
+            }
+          };
+        } catch (e) {
+          console.warn('Could not parse saved state. Loading default preset.', e);
+          loadDefaultPreset();
+        }
+      } else {
+        loadDefaultPreset();
+      }
+
+      if (appState.nightMode) {
+        document.body.classList.add('night-mode');
+      }
+    }
+
+    function loadDefaultPreset() {
+      applyPreset('dxHunter', false);
+    }
+
+    /* =====================================================================
+       LIVE WEBSOCKET BRIDGE INTEGRATION (flrig_bridge.py)
+       ===================================================================== */
+    function connectBridgeWebSocket() {
+      const wsUrl = `ws://127.0.0.1:${appState.radioPort || 8088}`;
+      try {
+        bridgeSocket = new WebSocket(wsUrl);
+
+        bridgeSocket.onopen = () => {
+          updateRigLinkStatus(true, "FLRIG LIVE");
+          logSimulatedPacket(`[BRIDGE] Connected to FLRIG XML-RPC bridge on ${wsUrl}`);
+        };
+
+        bridgeSocket.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
+            if (data.connected) {
+              // Only overwrite local frequency if the operator has not tuned within 800ms
+              if (Date.now() > tuneLockUntil) {
+                appState.vfo.frequency = data.frequency;
+                appState.vfo.mode = data.mode || appState.vfo.mode;
+                appState.vfo.band = data.band || calculateBand(data.frequency);
+                appState.vfo.isSimulated = false;
+
+                const currentSlot = (appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
+                appState.vfo[currentSlot] = {
+                  frequency: data.frequency,
+                  mode: appState.vfo.mode,
+                  band: appState.vfo.band
+                };
+
+                updateVfoDisplay();
+              }
+              updateRigLinkStatus(true, "FLRIG LIVE");
+            } else {
+              updateRigLinkStatus(false, "FLRIG OFFLINE");
+            }
+          } catch (e) {
+            console.error("[RigDeck] Telemetry parse error:", e);
+          }
+        };
+
+        bridgeSocket.onclose = () => {
+          updateRigLinkStatus(false, "WS OFFLINE");
+          setTimeout(connectBridgeWebSocket, 2000);
+        };
+
+        bridgeSocket.onerror = () => {
+          updateRigLinkStatus(false, "WS ERROR");
+        };
+      } catch (err) {
+        updateRigLinkStatus(false, "WS OFFLINE");
+        setTimeout(connectBridgeWebSocket, 3000);
+      }
+    }
+
+    function updateRigLinkStatus(online, label) {
+      const ind = document.getElementById('rigStatusIndicator');
+      const txt = document.getElementById('rigStatusText');
+      if (!ind || !txt) return;
+
+      if (online) {
+        ind.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]';
+        txt.className = 'text-[11px] font-mono text-emerald-400 font-bold';
+        txt.innerText = label;
+      } else {
+        ind.className = 'w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]';
+        txt.className = 'text-[11px] font-mono text-red-400 font-bold';
+        txt.innerText = label;
+      }
+    }
+
+    function calculateBand(freqHz) {
+      const mhz = freqHz / 1000000.0;
+      if (mhz >= 1.8 && mhz <= 2.0) return "160m";
+      if (mhz >= 3.5 && mhz <= 4.0) return "80m";
+      if (mhz >= 5.33 && mhz <= 5.41) return "60m";
+      if (mhz >= 7.0 && mhz <= 7.3) return "40m";
+      if (mhz >= 10.1 && mhz <= 10.15) return "30m";
+      if (mhz >= 14.0 && mhz <= 14.35) return "20m";
+      if (mhz >= 18.068 && mhz <= 18.168) return "17m";
+      if (mhz >= 21.0 && mhz <= 21.45) return "15m";
+      if (mhz >= 24.89 && mhz <= 24.99) return "12m";
+      if (mhz >= 28.0 && mhz <= 29.7) return "10m";
+      if (mhz >= 50.0 && mhz <= 54.0) return "6m";
+      if (mhz >= 144.0 && mhz <= 148.0) return "2m";
+      if (mhz >= 420.0 && mhz <= 450.0) return "70cm";
+      return "--m";
+    }
+
+    function sendFreqToBridge(freqHz) {
+      if (bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
+        bridgeSocket.send(JSON.stringify({ action: "set_freq", freq: freqHz }));
+      }
+    }
+
+    /* =====================================================================
+       VFO A/B & HIGH-PRECISION DIGIT-BOX TUNING ENGINE
+       ===================================================================== */
+    function setVfo(vfoId) {
+      if (appState.vfo.active === vfoId) return;
+
+      const oldActive = appState.vfo.active || 'A';
+      const oldSlot = oldActive === 'A' ? 'vfoA' : 'vfoB';
+      appState.vfo[oldSlot] = {
+        frequency: appState.vfo.frequency,
+        mode: appState.vfo.mode,
+        band: appState.vfo.band
+      };
+
+      appState.vfo.active = vfoId;
+      const newSlot = vfoId === 'A' ? 'vfoA' : 'vfoB';
+      const target = appState.vfo[newSlot] || (vfoId === 'A' ? { frequency: 14074000, mode: 'USB', band: '20m' } : { frequency: 7074000, mode: 'LSB', band: '40m' });
+
+      appState.vfo.frequency = target.frequency;
+      appState.vfo.mode = target.mode;
+      appState.vfo.band = target.band || calculateBand(target.frequency);
+
+      updateVfoDisplay();
+      saveStateToStorage();
+
+      if (bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
+        bridgeSocket.send(JSON.stringify({ action: "set_vfo", vfo: vfoId }));
+        sendFreqToBridge(appState.vfo.frequency);
+      }
+
+      showToast(`Switched to VFO ${vfoId}`);
+    }
+
+    function updateVfoButtons() {
+      const btnA = document.getElementById('btnVfoA');
+      const btnB = document.getElementById('btnVfoB');
+      if (!btnA || !btnB) return;
+      const isA = (appState.vfo.active || 'A') === 'A';
+      if (isA) {
+        btnA.className = "px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition font-bold";
+        btnB.className = "px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition border border-transparent font-normal";
+      } else {
+        btnB.className = "px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition font-bold";
+        btnA.className = "px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition border border-transparent font-normal";
+      }
+    }
+
+    function formatWeightLabel(w) {
+      if (w >= 1000000) return `${w / 1000000} MHz`;
+      if (w >= 1000) return `${w / 1000} kHz`;
+      return `${w} Hz`;
+    }
+
+    function tuneDigit(weight, direction) {
+      const delta = weight * direction;
+      let newFreq = Math.max(100000, Math.min(450000000, appState.vfo.frequency + delta));
+
+      appState.vfo.frequency = newFreq;
+      appState.vfo.band = calculateBand(newFreq);
+
+      const activeSlot = (appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
+      appState.vfo[activeSlot].frequency = newFreq;
+      appState.vfo[activeSlot].band = appState.vfo.band;
+
+      // Prevent FLRIG telemetry overwrite for 800ms while transceiver settles
+      tuneLockUntil = Date.now() + 800;
+
+      updateVfoDisplay();
+      saveStateToStorage();
+      sendFreqToBridge(newFreq);
+    }
+
+    function handleDigitWheel(event, weight) {
+      event.preventDefault();
+      event.stopPropagation();
+      const direction = event.deltaY < 0 ? 1 : -1;
+      tuneDigit(weight, direction);
+    }
+
+    function buildDigitColumn(char, weight) {
+      return `
+        <div class="relative group inline-flex flex-col items-center justify-center w-5 sm:w-6 h-9 sm:h-10 mx-[0.5px] rounded border border-transparent hover:border-cyan-500/40 hover:bg-cyan-950/40 select-none transition-colors" onwheel="handleDigitWheel(event, ${weight})">
+          <!-- Top click zone (+) -->
+          <div onclick="tuneDigit(${weight}, 1)" title="Step +${formatWeightLabel(weight)}" class="absolute top-0 inset-x-0 h-1/2 cursor-pointer z-10 hover:bg-cyan-400/25 rounded-t flex items-start justify-center">
+            <span class="opacity-0 group-hover:opacity-100 text-[8px] text-cyan-300 font-sans -mt-0.5 leading-none transition-opacity">▲</span>
+          </div>
+          <!-- Digit readout -->
+          <span class="font-lcd text-xl sm:text-2xl font-bold text-cyan-400 lcd-text pointer-events-none">${char}</span>
+          <!-- Bottom click zone (-) -->
+          <div onclick="tuneDigit(${weight}, -1)" title="Step -${formatWeightLabel(weight)}" class="absolute bottom-0 inset-x-0 h-1/2 cursor-pointer z-10 hover:bg-cyan-400/25 rounded-b flex items-end justify-center">
+            <span class="opacity-0 group-hover:opacity-100 text-[8px] text-cyan-300 font-sans -mb-0.5 leading-none transition-opacity">▼</span>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderVfoDigits(freqHz) {
+      const f = Math.max(0, parseInt(freqHz, 10) || 0);
+      const mhzVal = Math.floor(f / 1000000);
+      const khzVal = Math.floor((f % 1000000) / 1000);
+      const hzVal = f % 1000;
+
+      const mhzStr = String(mhzVal);
+      const khzStr = String(khzVal).padStart(3, '0');
+      const hzStr = String(hzVal).padStart(3, '0');
+
+      let html = '';
+
+      // MHz digits
+      for (let i = 0; i < mhzStr.length; i++) {
+        const power = mhzStr.length - 1 - i;
+        const weight = Math.pow(10, power + 6);
+        html += buildDigitColumn(mhzStr[i], weight);
+      }
+
+      html += `<span class="text-cyan-400/60 select-none mx-0.5 text-xl sm:text-2xl font-lcd font-bold pointer-events-none">.</span>`;
+
+      // kHz digits
+      const khzWeights = [100000, 10000, 1000];
+      for (let i = 0; i < 3; i++) {
+        html += buildDigitColumn(khzStr[i], khzWeights[i]);
+      }
+
+      html += `<span class="text-cyan-400/60 select-none mx-0.5 text-xl sm:text-2xl font-lcd font-bold pointer-events-none">.</span>`;
+
+      // Hz digits
+      const hzWeights = [100, 10, 1];
+      for (let i = 0; i < 3; i++) {
+        html += buildDigitColumn(hzStr[i], hzWeights[i]);
+      }
+
+      return html;
+    }
+
+    function toggleBandDropdown(e) {
+      e.stopPropagation();
+      document.getElementById('modeDropdown').classList.add('hidden');
+      document.getElementById('presetDropdown').classList.add('hidden');
+      document.getElementById('bandDropdown').classList.toggle('hidden');
+    }
+
+    function toggleModeDropdown(e) {
+      e.stopPropagation();
+      document.getElementById('bandDropdown').classList.add('hidden');
+      document.getElementById('presetDropdown').classList.add('hidden');
+      document.getElementById('modeDropdown').classList.toggle('hidden');
+    }
+
+    function selectBand(bandName, defaultFreq) {
+      appState.vfo.band = bandName;
+      if (defaultFreq) {
+        appState.vfo.frequency = defaultFreq;
+      }
+      const activeSlot = (appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
+      appState.vfo[activeSlot].band = bandName;
+      appState.vfo[activeSlot].frequency = appState.vfo.frequency;
+
+      tuneLockUntil = Date.now() + 800;
+
+      updateVfoDisplay();
+      saveStateToStorage();
+      document.getElementById('bandDropdown').classList.add('hidden');
+      sendFreqToBridge(appState.vfo.frequency);
+      showToast(`Selected ${bandName} Band (${(appState.vfo.frequency / 1000000).toFixed(3)} MHz)`);
+    }
+
+    function selectMode(modeName) {
+      appState.vfo.mode = modeName;
+      const activeSlot = (appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
+      appState.vfo[activeSlot].mode = modeName;
+
+      tuneLockUntil = Date.now() + 800;
+
+      updateVfoDisplay();
+      saveStateToStorage();
+      document.getElementById('modeDropdown').classList.add('hidden');
+
+      if (bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
+        bridgeSocket.send(JSON.stringify({ action: "set_mode", mode: modeName }));
+      }
+      showToast(`Switched Mode to ${modeName}`);
+    }
+
+    function updateVfoDisplay() {
+      const vfoElem = document.getElementById('vfoFrequency');
+      if (vfoElem) {
+        vfoElem.innerHTML = renderVfoDigits(appState.vfo.frequency);
+      }
+      document.getElementById('vfoBand').innerText = appState.vfo.band;
+      document.getElementById('vfoMode').innerText = appState.vfo.mode;
+      updateVfoButtons();
+    }
+
+    /* =====================================================================
+       LIVE CLOCKS & HEADER TELEMETRY
+       ===================================================================== */
+    function startClocks() {
+      function tick() {
+        const now = new Date();
+
+        const utcHours = String(now.getUTCHours()).padStart(2, '0');
+        const utcMins = String(now.getUTCMinutes()).padStart(2, '0');
+        const utcSecs = String(now.getUTCSeconds()).padStart(2, '0');
+        document.getElementById('utcClock').innerText = `${utcHours}:${utcMins}:${utcSecs}`;
+
+        const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+        const utcDateStr = `${now.getUTCDate()} ${months[now.getUTCMonth()]} ${now.getUTCFullYear()}`;
+        document.getElementById('utcDate').innerText = utcDateStr;
+
+        const locHours = String(now.getHours()).padStart(2, '0');
+        const locMins = String(now.getMinutes()).padStart(2, '0');
+        document.getElementById('localClock').innerText = `LOC ${locHours}:${locMins}`;
+      }
+      tick();
+      setInterval(tick, 1000);
+    }
+
+    function setupHeaderTelemetry() {
+      document.getElementById('hdrCallsign').innerText = appState.profile.callsign;
+      document.getElementById('hdrGrid').innerText = appState.profile.grid;
+      document.getElementById('hdrSfi').innerText = appState.solar.sfi;
+      document.getElementById('hdrSsn').innerText = appState.solar.ssn;
+      document.getElementById('hdrAIndex').innerText = appState.solar.aIndex;
+
+      const kVal = appState.solar.kIndex;
+      const kBadge = document.getElementById('hdrKIndex');
+      if (kVal <= 2) {
+        kBadge.className = 'px-1.5 py-0.2 rounded text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
+        kBadge.innerText = `${kVal} Quiet`;
+      } else if (kVal <= 4) {
+        kBadge.className = 'px-1.5 py-0.2 rounded text-[11px] font-bold bg-amber-950 text-amber-400 border border-amber-800';
+        kBadge.innerText = `${kVal} Unsettled`;
+      } else {
+        kBadge.className = 'px-1.5 py-0.2 rounded text-[11px] font-bold bg-red-950 text-red-400 border border-red-800';
+        kBadge.innerText = `${kVal} Storm`;
+      }
+
+      updateVfoDisplay();
+    }
+
+    /* =====================================================================
+       GRID LOCATOR MATH & DISTANCE/BEARING ENGINE
+       ===================================================================== */
+    function maidenheadToLatLon(grid) {
+      if (!grid || grid.length < 4) return null;
+      grid = grid.toUpperCase().trim();
+      const l1 = grid.charCodeAt(0) - 65;
+      const l2 = grid.charCodeAt(1) - 65;
+      const d1 = parseInt(grid.charAt(2), 10);
+      const d2 = parseInt(grid.charAt(3), 10);
+
+      let lon = -180 + l1 * 20 + d1 * 2;
+      let lat = -90 + l2 * 10 + d2 * 1;
+
+      if (grid.length >= 6) {
+        const s1 = grid.charCodeAt(4) - 65;
+        const s2 = grid.charCodeAt(5) - 65;
+        lon += (s1 + 0.5) * (2 / 24);
+        lat += (s2 + 0.5) * (1 / 24);
+      } else {
+        lon += 1;
+        lat += 0.5;
+      }
+      return { lat, lon };
+    }
+
+    function calculateGreatCircle(lat1, lon1, lat2, lon2) {
+      const R = 6371;
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const phi1 = lat1 * Math.PI / 180;
+      const phi2 = lat2 * Math.PI / 180;
+
+      const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.sin(dLon / 2) * Math.sin(dLon / 2) * Math.cos(phi1) * Math.cos(phi2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      const distKm = R * c;
+      const distMi = distKm * 0.621371;
+
+      const y = Math.sin(dLon) * Math.cos(phi2);
+      const x = Math.cos(phi1) * Math.sin(phi2) -
+                Math.sin(phi1) * Math.cos(phi2) * Math.cos(dLon);
+      let bearing = Math.atan2(y, x) * 180 / Math.PI;
+      bearing = (bearing + 360) % 360;
+
+      return {
+        distKm: Math.round(distKm),
+        distMi: Math.round(distMi),
+        bearing: Math.round(bearing)
+      };
+    }
+
+    /* =====================================================================
+       PANE RENDERING & URL TEMPLATING ENGINE
+       ===================================================================== */
+    function renderPanes() {
+      const container = document.getElementById('panesContainer');
+      const emptyState = document.getElementById('emptyState');
+      container.innerHTML = '';
+
+      if (!appState.panes || appState.panes.length === 0) {
+        emptyState.classList.remove('hidden');
+        return;
+      }
+      emptyState.classList.add('hidden');
+
+      appState.panes.forEach((pane) => {
+        const card = document.createElement('div');
+        const colSpan = pane.widthClass || 'col-span-1 md:col-span-1 lg:col-span-1';
+        card.className = `${colSpan} bg-shack-900 border border-shack-border rounded-lg shadow-xl flex flex-col overflow-hidden transition-all duration-150`;
+        card.id = `pane-${pane.instanceId}`;
+
+        const header = document.createElement('div');
+        header.className = 'px-3 py-2 bg-shack-850 border-b border-shack-border flex items-center justify-between text-xs font-mono';
+        
+        header.innerHTML = `
+          <div class="flex items-center gap-2 overflow-hidden">
+            <span class="w-2 h-2 rounded-full ${pane.isNative ? 'bg-cyan-400' : 'bg-amber-400'}"></span>
+            <span class="font-bold text-slate-200 truncate tracking-wide" title="${pane.title}">${pane.title}</span>
+          </div>
+          <div class="flex items-center gap-1 text-slate-400">
+            ${!pane.isNative ? `
+              <button onclick="reloadPaneIframe('${pane.instanceId}')" class="p-1 hover:text-white hover:bg-shack-800 rounded transition" title="Reload iframe">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+              </button>
+              <button onclick="popoutPane('${pane.instanceId}')" class="p-1 hover:text-amber-400 hover:bg-shack-800 rounded transition" title="Pop out into clean popup window">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
+              </button>
+            ` : ''}
+            <button onclick="toggleExpandPane('${pane.instanceId}')" class="p-1 hover:text-cyan-400 hover:bg-shack-800 rounded transition" title="Toggle span size">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+            </button>
+            <button onclick="removePane('${pane.instanceId}')" class="p-1 hover:text-red-400 hover:bg-shack-800 rounded transition" title="Remove pane">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+            </button>
+          </div>
+        `;
+        card.appendChild(header);
+
+        const body = document.createElement('div');
+        body.className = `flex-1 relative bg-shack-950 overflow-hidden ${pane.heightClass || 'h-96'}`;
+
+        if (pane.isNative) {
+          body.appendChild(buildNativeWidget(pane.widgetType, pane.instanceId));
+        } else {
+          const finalUrl = resolveTemplateUrl(pane.urlTemplate);
+          body.innerHTML = `
+            <iframe id="iframe-${pane.instanceId}" src="${finalUrl}" class="w-full h-full border-0 bg-white" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
+            <div class="absolute bottom-0 inset-x-0 bg-shack-900/90 backdrop-blur-xs border-t border-shack-800 px-3 py-1 flex items-center justify-between text-[10px] font-mono text-slate-400">
+              <span class="truncate pr-2" title="${finalUrl}">URL: ${finalUrl}</span>
+              <button onclick="openFrameShieldModal('${escapeQuotes(pane.title)}', '${escapeQuotes(finalUrl)}')" class="shrink-0 text-amber-400 hover:underline flex items-center gap-1 font-bold">
+                Frame Shield / Pop Out ↗
+              </button>
+            </div>
+          `;
+        }
+        card.appendChild(body);
+        container.appendChild(card);
+      });
+    }
+
+    function escapeQuotes(str) {
+      return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    }
+
+    function resolveTemplateUrl(urlTemplate) {
+      if (!urlTemplate) return '';
+      return urlTemplate
+        .replace(/{callsign}/g, encodeURIComponent(appState.profile.callsign))
+        .replace(/{grid}/g, encodeURIComponent(appState.profile.grid))
+        .replace(/{freq}/g, encodeURIComponent((appState.vfo.frequency / 1000).toFixed(0)))
+        .replace(/{band}/g, encodeURIComponent(appState.vfo.band));
+    }
+
+    function reloadPaneIframe(instanceId) {
+      const iframe = document.getElementById(`iframe-${instanceId}`);
+      if (iframe) {
+        const src = iframe.src;
+        iframe.src = '';
+        setTimeout(() => { iframe.src = src; }, 100);
+        showToast('Reloading pane frame...');
+      }
+    }
+
+    function popoutPane(instanceId) {
+      const pane = appState.panes.find(p => p.instanceId === instanceId);
+      if (pane && pane.urlTemplate) {
+        const url = resolveTemplateUrl(pane.urlTemplate);
+        window.open(url, '_blank', 'width=1024,height=720,menubar=no,toolbar=no,location=no,status=no');
+      }
+    }
+
+    function toggleExpandPane(instanceId) {
+      const pane = appState.panes.find(p => p.instanceId === instanceId);
+      if (pane) {
+        if (!pane.widthClass || pane.widthClass.includes('col-span-1')) {
+          pane.widthClass = 'col-span-1 md:col-span-2 lg:col-span-2 xl:col-span-3';
+        } else {
+          pane.widthClass = 'col-span-1';
+        }
+        renderPanes();
+        saveStateToStorage();
+      }
+    }
+
+    function removePane(instanceId) {
+      appState.panes = appState.panes.filter(p => p.instanceId !== instanceId);
+      renderPanes();
+      saveStateToStorage();
+      showToast('Pane removed from dashboard.');
+    }
+
+    /* =====================================================================
+       NATIVE INTERACTIVE WIDGET GENERATOR
+       ===================================================================== */
+    function buildNativeWidget(type, instanceId) {
+      const wrapper = document.createElement('div');
+      wrapper.className = 'w-full h-full p-3 overflow-y-auto text-xs font-mono text-slate-200 select-text';
+
+      switch (type) {
+        case 'solarMonitor':
+          wrapper.innerHTML = `
+            <div class="h-full flex flex-col justify-between space-y-3">
+              <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-center">
+                <div class="bg-shack-850 p-2 rounded border border-shack-border">
+                  <span class="text-[10px] text-slate-400 block">SOLAR FLUX (SFI)</span>
+                  <span class="text-xl font-bold font-lcd text-amber-400">164</span>
+                  <span class="text-[9px] text-emerald-400 block">Good HF Condx</span>
+                </div>
+                <div class="bg-shack-850 p-2 rounded border border-shack-border">
+                  <span class="text-[10px] text-slate-400 block">SUNSPOT NO (SSN)</span>
+                  <span class="text-xl font-bold font-lcd text-amber-400">138</span>
+                  <span class="text-[9px] text-slate-400 block">Cycle 25 High</span>
+                </div>
+                <div class="bg-shack-850 p-2 rounded border border-shack-border">
+                  <span class="text-[10px] text-slate-400 block">A-INDEX</span>
+                  <span class="text-xl font-bold font-lcd text-slate-200">6</span>
+                  <span class="text-[9px] text-emerald-400 block">Low Absorption</span>
+                </div>
+                <div class="bg-shack-850 p-2 rounded border border-shack-border">
+                  <span class="text-[10px] text-slate-400 block">PLANETARY Kp</span>
+                  <span class="text-xl font-bold font-lcd text-emerald-400">2.0</span>
+                  <span class="text-[9px] text-emerald-400 block">Quiet Geomag</span>
+                </div>
+              </div>
+
+              <div class="bg-shack-850 p-2.5 rounded border border-shack-border">
+                <div class="text-[10px] font-bold text-slate-400 mb-1.5 flex justify-between">
+                  <span>ESTIMATED BAND CONDITIONS</span>
+                  <span class="text-emerald-400">DAY / NIGHT</span>
+                </div>
+                <div class="grid grid-cols-4 gap-1.5 text-center text-[10px]">
+                  <div class="bg-shack-900 p-1 rounded border border-shack-700">
+                    <span class="block text-slate-400">80m-40m</span>
+                    <span class="font-bold text-amber-400">Fair / Good</span>
+                  </div>
+                  <div class="bg-shack-900 p-1 rounded border border-shack-700">
+                    <span class="block text-slate-400">30m-20m</span>
+                    <span class="font-bold text-emerald-400">Good / Fair</span>
+                  </div>
+                  <div class="bg-shack-900 p-1 rounded border border-shack-700">
+                    <span class="block text-slate-400">17m-15m</span>
+                    <span class="font-bold text-emerald-400">Good / Closed</span>
+                  </div>
+                  <div class="bg-shack-900 p-1 rounded border border-shack-700">
+                    <span class="block text-slate-400">12m-10m</span>
+                    <span class="font-bold text-amber-400">Good / Closed</span>
+                  </div>
+                </div>
+              </div>
+
+              <div class="flex items-center justify-between text-[11px] bg-shack-900 p-2 rounded border border-shack-border">
+                <div>Solar Wind: <span class="text-slate-300 font-bold">412 km/s</span></div>
+                <div>X-Ray Flux: <span class="text-cyan-400 font-bold">C1.4</span></div>
+                <div>Aurora: <span class="text-emerald-400 font-bold">Normal</span></div>
+              </div>
+            </div>
+          `;
+          break;
+
+        case 'qsoLogger':
+          wrapper.innerHTML = `
+            <div class="h-full flex flex-col space-y-2">
+              <div class="grid grid-cols-2 sm:grid-cols-6 gap-1.5 bg-shack-850 p-2 rounded border border-shack-border">
+                <div class="col-span-2 sm:col-span-2">
+                  <input type="text" id="logCall" placeholder="CALLSIGN" onkeydown="if(event.key==='Enter') commitQuickQso()" class="w-full bg-shack-950 border border-shack-700 rounded px-2 py-1 text-amber-400 font-bold uppercase text-xs focus:outline-none focus:border-amber-500">
+                </div>
+                <div>
+                  <input type="text" id="logRstSent" value="599" placeholder="RST S" class="w-full bg-shack-950 border border-shack-700 rounded px-1.5 py-1 text-center text-xs">
+                </div>
+                <div>
+                  <input type="text" id="logRstRcvd" value="599" placeholder="RST R" class="w-full bg-shack-950 border border-shack-700 rounded px-1.5 py-1 text-center text-xs">
+                </div>
+                <div class="col-span-2 sm:col-span-2 flex gap-1">
+                  <button onclick="commitQuickQso()" class="flex-1 bg-amber-500 hover:bg-amber-400 text-black font-bold py-1 px-2 rounded text-xs transition">
+                    + LOG QSO
+                  </button>
+                  <button onclick="exportAdifLog()" title="Download ADIF Log file for LoTW / QRZ / eQSL" class="bg-shack-800 hover:bg-shack-700 border border-shack-700 text-slate-300 px-2 py-1 rounded text-[11px]">
+                    ADIF
+                  </button>
+                  <button onclick="clearAllQsos()" title="Clear local QSO table" class="bg-shack-800 hover:bg-red-900 border border-shack-700 hover:border-red-700 text-slate-400 hover:text-red-300 px-2 py-1 rounded text-[11px]">
+                    CLR
+                  </button>
+                </div>
+              </div>
+
+              <div class="flex-1 bg-shack-950 border border-shack-border rounded overflow-y-auto">
+                <table class="w-full text-left text-[11px] font-mono">
+                  <thead class="bg-shack-850 text-slate-400 border-b border-shack-border sticky top-0">
+                    <tr>
+                      <th class="p-1.5">TIME (Z)</th>
+                      <th class="p-1.5">CALL</th>
+                      <th class="p-1.5">BAND</th>
+                      <th class="p-1.5">MODE</th>
+                      <th class="p-1.5">RST</th>
+                      <th class="p-1.5 text-center">ACT</th>
+                    </tr>
+                  </thead>
+                  <tbody id="qsoLogTableBody" class="divide-y divide-shack-850 text-slate-300">
+                    ${renderQsoRows()}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          `;
+          break;
+
+        case 'greatCircle':
+          wrapper.innerHTML = `
+            <div class="h-full flex flex-col justify-between space-y-2">
+              <div class="flex gap-2">
+                <div class="flex-1">
+                  <label class="text-[10px] text-slate-400 block mb-0.5">TARGET GRID / CALL</label>
+                  <input type="text" id="calcTargetGrid" placeholder="e.g. JA1 or PM95" value="PM95" oninput="runBearingCalculation()" class="w-full bg-shack-950 border border-shack-700 rounded px-2 py-1 text-xs text-amber-400 uppercase font-bold focus:outline-none focus:border-amber-500">
+                </div>
+                <div class="w-28 text-right">
+                  <label class="text-[10px] text-slate-400 block mb-0.5">OPERATOR GRID</label>
+                  <div class="text-xs font-bold text-cyan-400 py-1">${appState.profile.grid}</div>
+                </div>
+              </div>
+
+              <div class="bg-shack-850 p-3 rounded border border-shack-border flex items-center justify-around">
+                <div class="relative w-24 h-24 flex items-center justify-center">
+                  <svg class="w-full h-full text-shack-700" viewBox="0 0 100 100">
+                    <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" stroke-width="2"/>
+                    <circle cx="50" cy="50" r="2" fill="#f59e0b"/>
+                    <text x="50" y="14" fill="#94a3b8" font-size="8" font-family="monospace" text-anchor="middle">N</text>
+                    <text x="88" y="53" fill="#94a3b8" font-size="8" font-family="monospace" text-anchor="middle">E</text>
+                    <text x="50" y="92" fill="#94a3b8" font-size="8" font-family="monospace" text-anchor="middle">S</text>
+                    <text x="12" y="53" fill="#94a3b8" font-size="8" font-family="monospace" text-anchor="middle">W</text>
+                  </svg>
+                  <div id="bearingNeedle" class="absolute inset-0 flex items-center justify-center pointer-events-none transition-transform duration-500" style="transform: rotate(330deg);">
+                    <div class="w-1 h-16 bg-gradient-to-t from-transparent via-amber-400 to-amber-500 rounded"></div>
+                  </div>
+                </div>
+
+                <div class="space-y-1">
+                  <div>
+                    <span class="text-[10px] text-slate-400 block">BEARING (TRUE AZIMUTH)</span>
+                    <span id="calcBearingValue" class="text-2xl font-lcd font-bold text-amber-400">330°</span>
+                  </div>
+                  <div>
+                    <span class="text-[10px] text-slate-400 block">GREAT CIRCLE DISTANCE</span>
+                    <span id="calcDistanceValue" class="text-sm font-bold text-cyan-400">10,845 km (6,738 mi)</span>
+                  </div>
+                  <div class="text-[9px] text-slate-500">Short Path (SP) Calculation</div>
+                </div>
+              </div>
+
+              <div class="text-[10px] text-slate-400 text-center">
+                Antenna Rotator: Turn beam to <span id="calcBearingEcho" class="text-amber-400 font-bold">330°</span> for optimum gain.
+              </div>
+            </div>
+          `;
+          setTimeout(runBearingCalculation, 50);
+          break;
+
+        case 'udpMonitor':
+          wrapper.innerHTML = `
+            <div class="h-full flex flex-col justify-between space-y-2">
+              <div class="flex items-center justify-between text-[11px] bg-shack-850 p-2 rounded border border-shack-border">
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                  <span class="text-slate-300 font-bold">TELEMETRY STREAM: ACTIVE</span>
+                </div>
+                <div class="text-slate-400">Port: <span class="text-amber-400">${appState.radioPort}</span></div>
+              </div>
+              <div id="udpTerminalBody" class="flex-1 bg-black p-2.5 rounded border border-shack-border font-mono text-[10px] text-emerald-400 overflow-y-auto space-y-1">
+                <div class="text-slate-500">[SYSTEM] Bridge stream listener initialized for 127.0.0.1:${appState.radioPort}</div>
+                <div class="text-slate-500">[FLRIG] Monitoring XML-RPC rig parameters & master ADIF pipe...</div>
+              </div>
+              <div class="flex justify-between items-center text-[10px] text-slate-400">
+                <span>Protocol: <code class="text-cyan-400">${appState.radioSoftware.toUpperCase()}</code></span>
+                <button onclick="clearUdpTerminal()" class="text-slate-400 hover:text-white underline">Clear Stream</button>
+              </div>
+            </div>
+          `;
+          break;
+
+        case 'scratchpad':
+          wrapper.innerHTML = `
+            <div class="h-full flex flex-col space-y-2">
+              <textarea id="scratchpadInput" oninput="saveScratchpad(this.value)" placeholder="Enter frequencies, contest serials, nets, and skeds here..." class="w-full flex-1 bg-shack-950 border border-shack-border rounded p-2.5 text-xs text-amber-300 font-mono resize-none focus:outline-none focus:border-amber-500 leading-relaxed">${appState.scratchpadText || ''}</textarea>
+              <div class="flex justify-between items-center text-[10px] text-slate-500">
+                <span>Auto-saved to localStorage</span>
+                <button onclick="clearScratchpad()" class="text-slate-500 hover:text-red-400">Clear</button>
+              </div>
+            </div>
+          `;
+          break;
+
+        default:
+          wrapper.innerHTML = `<div class="p-4 text-slate-400">Widget: ${type}</div>`;
+      }
+
+      return wrapper;
+    }
+
+    /* =====================================================================
+       QSO LOGGING ENGINE & ADIF DISK DISPATCH
+       ===================================================================== */
+    function renderQsoRows() {
+      if (!appState.qsos || appState.qsos.length === 0) {
+        return `<tr><td colspan="6" class="p-3 text-center text-slate-500">No QSOs recorded yet. Enter a callsign above.</td></tr>`;
+      }
+      return appState.qsos.slice(-50).reverse().map(q => `
+        <tr class="hover:bg-shack-800/50">
+          <td class="p-1.5 text-slate-400">${q.time}</td>
+          <td class="p-1.5 font-bold text-amber-400">${q.call}</td>
+          <td class="p-1.5 text-cyan-400">${q.band || ''}</td>
+          <td class="p-1.5 text-slate-300">${q.mode || ''}</td>
+          <td class="p-1.5 text-slate-400">${q.rstS} / ${q.rstR}</td>
+          <td class="p-1.5 text-center">
+            <button onclick="deleteQso(${q.id})" title="Delete QSO" class="text-slate-500 hover:text-red-400 font-bold px-1">✕</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function commitQuickQso() {
+      const callInput = document.getElementById('logCall');
+      const rstSInput = document.getElementById('logRstSent');
+      const rstRInput = document.getElementById('logRstRcvd');
+      if (!callInput || !callInput.value.trim()) {
+        showToast('Please enter a target Call Sign');
+        return;
+      }
+
+      const now = new Date();
+      const timeStr = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}`;
+      const timeOn = `${String(now.getUTCHours()).padStart(2, '0')}${String(now.getUTCMinutes()).padStart(2, '0')}${String(now.getUTCSeconds()).padStart(2, '0')}`;
+      const dateStr = `${now.getUTCFullYear()}${String(now.getUTCMonth()+1).padStart(2,'0')}${String(now.getUTCDate()).padStart(2,'0')}`;
+      const freqMhz = (appState.vfo.frequency / 1000000.0).toFixed(6);
+
+      const qsoId = Date.now();
+      const call = callInput.value.trim().toUpperCase();
+      const rstS = rstSInput ? rstSInput.value.trim() : '599';
+      const rstR = rstRInput ? rstRInput.value.trim() : '599';
+
+      const newQso = {
+        id: qsoId,
+        call: call,
+        rstS: rstS,
+        rstR: rstR,
+        rst_sent: rstS,
+        rst_rcvd: rstR,
+        band: appState.vfo.band,
+        mode: appState.vfo.mode,
+        freq: freqMhz,
+        time: timeStr,
+        time_on: timeOn,
+        date: dateStr
+      };
+
+      if (bridgeSocket && bridgeSocket.readyState === WebSocket.OPEN) {
+        bridgeSocket.send(JSON.stringify({
+          action: "log_qso",
+          qso: newQso,
+          station: appState.profile
+        }));
+      } else {
+        console.warn("[RigDeck] Bridge offline; QSO logged locally only.");
+      }
+
+      appState.qsos.push(newQso);
+      callInput.value = '';
+      saveStateToStorage();
+
+      const tbody = document.getElementById('qsoLogTableBody');
+      if (tbody) tbody.innerHTML = renderQsoRows();
+      showToast(`Logged QSO with ${newQso.call} on ${newQso.band}!`);
+      logSimulatedPacket(`[LOG-OK] Appended ${newQso.call} (${newQso.freq} MHz, ${newQso.mode}) to ADIF.`);
+    }
+
+    function deleteQso(id) {
+      appState.qsos = appState.qsos.filter(q => q.id !== id);
+      saveStateToStorage();
+      const tbody = document.getElementById('qsoLogTableBody');
+      if (tbody) tbody.innerHTML = renderQsoRows();
+      showToast('Deleted QSO from log.');
+    }
+
+    function clearAllQsos() {
+      if (confirm('Clear all logged QSOs from dashboard view?')) {
+        appState.qsos = [];
+        saveStateToStorage();
+        const tbody = document.getElementById('qsoLogTableBody');
+        if (tbody) tbody.innerHTML = renderQsoRows();
+        showToast('Cleared all local QSOs.');
+      }
+    }
+
+    function exportAdifLog() {
+      if (!appState.qsos || appState.qsos.length === 0) {
+        showToast('Logbook is currently empty.');
+        return;
+      }
+
+      const opCall = (appState.profile.callsign || 'KD2GUD').toUpperCase();
+      const opGrid = (appState.profile.grid || 'FN13xw').toUpperCase();
+      const opCity = appState.profile.city || 'Watertown';
+      const opState = appState.profile.state || 'NY';
+      const opCountry = appState.profile.country || 'USA';
+      const opCqz = (appState.profile.cqz || '5').toString();
+      const opPwr = (appState.profile.power || '100').toString();
+
+      let adif = "<ADIF_VER:5>3.1.4\n<PROGRAMID:7>RigDeck\n<PROGRAMVERSION:5>0.2.4\n<EOH>\n";
+
+      appState.qsos.forEach(q => {
+        const d = (q.date || "").replace(/[^\d]/g, '').slice(0, 8);
+        const t = (q.time_on || q.time || "").replace(/[^\d]/g, '').padEnd(6, '0').slice(0, 6);
+        const f = (q.freq || "14.074000").toString();
+        const b = q.band || "20m";
+        const m = (q.mode || "USB").toUpperCase();
+        const rs = (q.rstS || q.rst_sent || "599").toString();
+        const rr = (q.rstR || q.rst_rcvd || "599").toString();
+        const targetCall = q.call.toUpperCase();
+        const comment = q.notes || q.comment || "";
+
+        let record = 
+          `<FREQ:${f.length}>${f}` +
+          `<CALL:${targetCall.length}>${targetCall}` +
+          `<MODE:${m.length}>${m}` +
+          `<QSO_DATE:8>${d}` +
+          `<QSO_DATE_OFF:8>${d}` +
+          `<TIME_OFF:6>${t}` +
+          `<TIME_ON:6>${t}` +
+          `<RST_RCVD:${rr.length}>${rr}` +
+          `<RST_SENT:${rs.length}>${rs}` +
+          `<BAND:${b.length}>${b}` +
+          `<COUNTRY:${opCountry.length}>${opCountry}` +
+          `<CQZ:${opCqz.length}>${opCqz}` +
+          `<TX_PWR:${opPwr.length}>${opPwr}` +
+          `<OPERATOR:${opCall.length}>${opCall}` +
+          `<STATION_CALLSIGN:${opCall.length}>${opCall}` +
+          `<MY_GRIDSQUARE:${opGrid.length}>${opGrid}` +
+          `<MY_CITY:${opCity.length}>${opCity}` +
+          `<MY_STATE:${opState.length}>${opState}`;
+
+        if (comment) {
+          record += `<COMMENT:${comment.length}>${comment}`;
+        }
+        record += `<EOR>\n`;
+        adif += record;
+      });
+
+      const blob = new Blob([adif], { type: 'text/plain;charset=ascii' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `RigDeck_Log_${opCall}_${new Date().toISOString().slice(0,10)}.adi`;
+      a.click();
+      URL.revokeObjectURL(url);
+      showToast(`Exported ${appState.qsos.length} QSOs to standard ADIF.`);
+    }
+
+    /* =====================================================================
+       BEARING & GREAT CIRCLE CALCULATOR
+       ===================================================================== */
+    function runBearingCalculation() {
+      const targetInput = document.getElementById('calcTargetGrid');
+      if (!targetInput) return;
+      const targetVal = targetInput.value.trim().toUpperCase();
+      if (targetVal.length < 4) return;
+
+      const p1 = maidenheadToLatLon(appState.profile.grid);
+      const p2 = maidenheadToLatLon(targetVal);
+
+      if (p1 && p2) {
+        const result = calculateGreatCircle(p1.lat, p1.lon, p2.lat, p2.lon);
+        const bearingElem = document.getElementById('calcBearingValue');
+        const distElem = document.getElementById('calcDistanceValue');
+        const needle = document.getElementById('bearingNeedle');
+        const echoElem = document.getElementById('calcBearingEcho');
+
+        if (bearingElem) bearingElem.innerText = `${result.bearing}°`;
+        if (distElem) distElem.innerText = `${result.distKm.toLocaleString()} km (${result.distMi.toLocaleString()} mi)`;
+        if (needle) needle.style.transform = `rotate(${result.bearing}deg)`;
+        if (echoElem) echoElem.innerText = `${result.bearing}°`;
+      }
+    }
+
+    function saveScratchpad(val) {
+      appState.scratchpadText = val;
+      saveStateToStorage();
+    }
+
+    function clearScratchpad() {
+      appState.scratchpadText = '';
+      const ta = document.getElementById('scratchpadInput');
+      if (ta) ta.value = '';
+      saveStateToStorage();
+    }
+
+    /* =====================================================================
+       DIAGNOSTIC TELEMETRY STREAM LOGGER
+       ===================================================================== */
+    let udpInterval = null;
+    function startSimulatedUDPStream() {
+      if (udpInterval) clearInterval(udpInterval);
+      udpInterval = setInterval(() => {
+        if (appState.vfo.isSimulated && Math.random() > 0.4) {
+          const sampleCalls = ['DL1ABC', 'JA7YRR', 'K3LR', 'PY2ZX', 'VK3IO', 'OH2BH', 'ZL1AA'];
+          const randomCall = sampleCalls[Math.floor(Math.random() * sampleCalls.length)];
+          const snr = Math.floor(Math.random() * 25) - 15;
+          const msg = `WSJT-X RX: ${randomCall} ${appState.profile.callsign} ${snr >= 0 ? '+' : ''}${snr}dB [${appState.vfo.band}]`;
+          logSimulatedPacket(msg);
+        }
+      }, 3500);
+    }
+
+    function logSimulatedPacket(text) {
+      const terminal = document.getElementById('udpTerminalBody');
+      if (!terminal) return;
+      const line = document.createElement('div');
+      const now = new Date();
+      const timeStr = `${String(now.getUTCHours()).padStart(2, '0')}:${String(now.getUTCMinutes()).padStart(2, '0')}:${String(now.getUTCSeconds()).padStart(2, '0')}Z`;
+      line.innerHTML = `<span class="text-slate-500">${timeStr}</span> ${text}`;
+      terminal.appendChild(line);
+
+      while (terminal.childNodes.length > 40) {
+        terminal.removeChild(terminal.firstChild);
+      }
+      terminal.scrollTop = terminal.scrollHeight;
+    }
+
+    function clearUdpTerminal() {
+      const terminal = document.getElementById('udpTerminalBody');
+      if (terminal) terminal.innerHTML = '<div class="text-slate-500">[LOG] Terminal stream cleared.</div>';
+    }
+
+    /* =====================================================================
+       PRESET CONFIGURATIONS & CATALOG
+       ===================================================================== */
+    function applyPreset(presetKey, notify = true) {
+      const preset = PRESETS[presetKey];
+      if (!preset) return;
+
+      appState.panes = preset.map(item => {
+        const cat = DEFAULT_CATALOG.find(c => c.id === item.catalogId);
+        return {
+          instanceId: 'p_' + Math.random().toString(36).substr(2, 9),
+          catalogId: cat.id,
+          title: cat.title,
+          isNative: cat.isNative,
+          widgetType: cat.widgetType,
+          urlTemplate: cat.urlTemplate,
+          heightClass: cat.defaultHeight,
+          widthClass: item.width
+        };
+      });
+
+      renderPanes();
+      saveStateToStorage();
+      const dropdown = document.getElementById('presetDropdown');
+      if (dropdown) dropdown.classList.add('hidden');
+      if (notify) showToast(`Loaded "${presetKey}" preset layout.`);
+    }
+
+    function populatePaneCatalog() {
+      const catalogList = document.getElementById('paneCatalogList');
+      if (!catalogList) return;
+      catalogList.innerHTML = '';
+
+      DEFAULT_CATALOG.forEach(item => {
+        const div = document.createElement('div');
+        div.className = 'bg-shack-850 border border-shack-border hover:border-amber-500/50 p-3 rounded flex flex-col justify-between transition';
+        div.innerHTML = `
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <span class="font-bold text-slate-200 text-xs">${item.title}</span>
+              <span class="text-[9px] font-mono px-1.5 py-0.5 rounded ${item.isNative ? 'bg-cyan-950 text-cyan-400 border border-cyan-800' : 'bg-shack-800 text-slate-400'}">${item.isNative ? 'NATIVE' : 'EMBED'}</span>
+            </div>
+            <p class="text-[11px] text-slate-400 leading-snug mb-2">${item.description}</p>
+          </div>
+          <button onclick="addCatalogPane('${item.id}')" class="w-full py-1.5 bg-shack-800 hover:bg-amber-500 hover:text-black text-slate-200 font-mono text-xs font-bold rounded transition">
+            + Add to Dashboard
+          </button>
+        `;
+        catalogList.appendChild(div);
+      });
+    }
+
+    function addCatalogPane(catalogId) {
+      const cat = DEFAULT_CATALOG.find(c => c.id === catalogId);
+      if (!cat) return;
+
+      const newPane = {
+        instanceId: 'p_' + Math.random().toString(36).substr(2, 9),
+        catalogId: cat.id,
+        title: cat.title,
+        isNative: cat.isNative,
+        widgetType: cat.widgetType,
+        urlTemplate: cat.urlTemplate,
+        heightClass: cat.defaultHeight,
+        widthClass: 'col-span-1'
+      };
+
+      appState.panes.push(newPane);
+      renderPanes();
+      saveStateToStorage();
+      closeModal('addPaneModal');
+      showToast(`Added "${cat.title}"`);
+    }
+
+    function addCustomUrlPane() {
+      const titleInput = document.getElementById('customPaneTitle');
+      const urlInput = document.getElementById('customPaneUrl');
+      const heightSelect = document.getElementById('customPaneHeight');
+
+      const title = titleInput.value.trim() || 'Custom Ham Tool';
+      const url = urlInput.value.trim();
+
+      if (!url) {
+        showToast('Please enter a valid website URL.');
+        return;
+      }
+
+      const newPane = {
+        instanceId: 'p_' + Math.random().toString(36).substr(2, 9),
+        title: title,
+        isNative: false,
+        urlTemplate: url,
+        heightClass: heightSelect.value,
+        widthClass: 'col-span-1'
+      };
+
+      appState.panes.push(newPane);
+      renderPanes();
+      saveStateToStorage();
+      titleInput.value = '';
+      urlInput.value = '';
+      closeModal('addPaneModal');
+      showToast(`Added "${title}" to dashboard.`);
+    }
+
+    /* =====================================================================
+       SETTINGS MODAL & TABS MANAGEMENT
+       ==================================================================== */
+    function openSettingsModal(tab = 'profile') {
+      document.getElementById('cfgCallsign').value = appState.profile.callsign;
+      document.getElementById('cfgGrid').value = appState.profile.grid;
+      document.getElementById('cfgCity').value = appState.profile.city || 'Watertown';
+      document.getElementById('cfgState').value = appState.profile.state || 'NY';
+      document.getElementById('cfgCountry').value = appState.profile.country || 'USA';
+      document.getElementById('cfgCqz').value = appState.profile.cqz || '5';
+      document.getElementById('cfgPower').value = appState.profile.power || '100';
+      document.getElementById('cfgLat').value = appState.profile.lat;
+      document.getElementById('cfgLon').value = appState.profile.lon;
+      document.getElementById('cfgRigName').value = appState.profile.rigName || '';
+      document.getElementById('cfgAntenna').value = appState.profile.antenna || '';
+      document.getElementById('cfgRadioSoftware').value = appState.radioSoftware;
+      document.getElementById('cfgRadioPort').value = appState.radioPort;
+
+      renderSettingsPanesList();
+      switchSettingsTab(tab);
+      document.getElementById('settingsModal').classList.remove('hidden');
+    }
+
+    function switchSettingsTab(tabKey) {
+      ['profile', 'rig', 'panes', 'backup'].forEach(t => {
+        const btn = document.getElementById(`tabBtn-${t}`);
+        const content = document.getElementById(`tabContent-${t}`);
+        if (btn && content) {
+          if (t === tabKey) {
+            btn.className = 'px-4 py-2.5 border-b-2 border-amber-500 text-amber-400 font-bold';
+            content.classList.remove('hidden');
+          } else {
+            btn.className = 'px-4 py-2.5 border-b-2 border-transparent text-slate-400 hover:text-slate-200';
+            content.classList.add('hidden');
+          }
+        }
+      });
+    }
+
+    function renderSettingsPanesList() {
+      const container = document.getElementById('settingsPanesList');
+      if (!container) return;
+      container.innerHTML = '';
+
+      if (appState.panes.length === 0) {
+        container.innerHTML = '<div class="text-slate-500 text-xs py-2">No active panes on dashboard.</div>';
+        return;
+      }
+
+      appState.panes.forEach((p, idx) => {
+        const row = document.createElement('div');
+        row.className = 'flex items-center justify-between p-2.5 bg-shack-900 border border-shack-border rounded text-xs';
+        row.innerHTML = `
+          <div class="flex items-center gap-2">
+            <span class="text-slate-500 font-mono">#${idx+1}</span>
+            <span class="font-bold text-slate-200">${p.title}</span>
+            <span class="text-[10px] text-slate-500">(${p.isNative ? 'Native' : 'Embed'})</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <button onclick="removePane('${p.instanceId}'); renderSettingsPanesList();" class="text-red-400 hover:text-red-300 font-mono text-xs">Remove</button>
+          </div>
+        `;
+        container.appendChild(row);
+      });
+    }
+
+    function saveAllSettings() {
+      const call = document.getElementById('cfgCallsign').value.trim().toUpperCase() || 'KD2GUD';
+      const grid = document.getElementById('cfgGrid').value.trim().toUpperCase() || 'FN13xw';
+      const city = document.getElementById('cfgCity').value.trim() || 'Watertown';
+      const state = document.getElementById('cfgState').value.trim().toUpperCase() || 'NY';
+      const country = document.getElementById('cfgCountry').value.trim().toUpperCase() || 'USA';
+      const cqz = document.getElementById('cfgCqz').value.trim() || '5';
+      const power = document.getElementById('cfgPower').value.trim() || '100';
+      const lat = parseFloat(document.getElementById('cfgLat').value) || 43.9748;
+      const lon = parseFloat(document.getElementById('cfgLon').value) || -75.9108;
+      const rigName = document.getElementById('cfgRigName').value.trim();
+      const antenna = document.getElementById('cfgAntenna').value.trim();
+      const software = document.getElementById('cfgRadioSoftware').value;
+      const port = parseInt(document.getElementById('cfgRadioPort').value, 10) || 8088;
+
+      appState.profile = { 
+        callsign: call, 
+        grid, 
+        lat, 
+        lon, 
+        city, 
+        state, 
+        country, 
+        cqz, 
+        power, 
+        rigName, 
+        antenna 
+      };
+      appState.radioSoftware = software;
+      appState.radioPort = port;
+
+      setupHeaderTelemetry();
+      renderPanes();
+      saveStateToStorage();
+      closeModal('settingsModal');
+      showToast('Settings saved & applied.');
+    }
+
+    function calculateCoordsFromCurrentGrid() {
+      const gridVal = document.getElementById('cfgGrid').value.trim().toUpperCase();
+      const coords = maidenheadToLatLon(gridVal);
+      if (coords) {
+        document.getElementById('cfgLat').value = coords.lat.toFixed(4);
+        document.getElementById('cfgLon').value = coords.lon.toFixed(4);
+        showToast(`Calculated Lat: ${coords.lat.toFixed(2)}, Lon: ${coords.lon.toFixed(2)}`);
+      } else {
+        showToast('Invalid Maidenhead grid locator format.');
+      }
+    }
+
+    function updateLatLonFromGrid(val) {
+      if (val && val.length >= 4) {
+        const coords = maidenheadToLatLon(val);
+        if (coords) {
+          document.getElementById('cfgLat').value = coords.lat.toFixed(4);
+          document.getElementById('cfgLon').value = coords.lon.toFixed(4);
+        }
+      }
+    }
+
+    function exportConfigJson() {
+      const dataStr = 'data:text/json;charset=utf-8,' + encodeURIComponent(JSON.stringify(appState, null, 2));
+      const dl = document.createElement('a');
+      dl.setAttribute('href', dataStr);
+      dl.setAttribute('download', `RigDeck_Backup_${appState.profile.callsign}.json`);
+      dl.click();
+      showToast('Exported dashboard configuration JSON.');
+    }
+
+    function importConfigJson(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = function(evt) {
+        try {
+          const parsed = JSON.parse(evt.target.result);
+          appState = {
+            ...appState,
+            ...parsed,
+            profile: { ...appState.profile, ...(parsed.profile || {}) }
+          };
+          saveStateToStorage();
+          setupHeaderTelemetry();
+          renderPanes();
+          closeModal('settingsModal');
+          showToast('Configuration successfully restored!');
+        } catch (err) {
+          showToast('Failed to parse config file: Invalid JSON.');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function resetFactoryDefaults() {
+      localStorage.removeItem('RIGDECK_V2_STATE');
+      appState.panes = [];
+      loadDefaultPreset();
+      setupHeaderTelemetry();
+      closeModal('settingsModal');
+      showToast('Reset to factory default presets.');
+    }
+
+    /* =====================================================================
+       FRAME SHIELD OVERLAY / POPUP HELPER
+       ===================================================================== */
+    function openFrameShieldModal(title, url) {
+      document.getElementById('shieldModalTitle').innerText = title;
+      document.getElementById('shieldModalUrl').innerText = url;
+      document.getElementById('shieldOpenWindowBtn').onclick = function() {
+        window.open(url, '_blank', 'width=1100,height=750');
+        closeModal('frameShieldModal');
+      };
+      document.getElementById('frameShieldModal').classList.remove('hidden');
+    }
+
+    /* =====================================================================
+       UI UTILITIES (THEME, MODALS, TOASTS)
+       ===================================================================== */
+    function toggleNightMode() {
+      appState.nightMode = !appState.nightMode;
+      if (appState.nightMode) {
+        document.body.classList.add('night-mode');
+        showToast('Tactical Red Night Mode enabled');
+      } else {
+        document.body.classList.remove('night-mode');
+        showToast('Standard Day/Shack Mode restored');
+      }
+      saveStateToStorage();
+    }
+
+    function toggleDropdown(id) {
+      const elem = document.getElementById(id);
+      if (elem) elem.classList.toggle('hidden');
+    }
+
+    function openAddPaneModal() {
+      document.getElementById('addPaneModal').classList.remove('hidden');
+    }
+
+    function closeModal(modalId) {
+      const modal = document.getElementById(modalId);
+      if (modal) modal.classList.add('hidden');
+    }
+
+    function showToast(msg) {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = 'bg-shack-800 border border-amber-500/60 text-slate-100 px-3.5 py-2 rounded shadow-2xl text-xs font-mono flex items-center gap-2 pointer-events-auto transition transform translate-y-2 opacity-0 duration-200';
+      toast.innerHTML = `<span class="text-amber-400">⚡</span> <span>${msg}</span>`;
+      container.appendChild(toast);
+
+      setTimeout(() => {
+        toast.classList.remove('translate-y-2', 'opacity-0');
+      }, 10);
+
+      setTimeout(() => {
+        toast.classList.add('opacity-0', 'translate-y-2');
+        setTimeout(() => {
+          if (toast.parentNode) toast.parentNode.removeChild(toast);
+        }, 300);
+      }, 3200);
+    }
+  </script>
+</body>
+</html>

@@ -1,0 +1,195 @@
+/* ShackDeck v0.2.4 Offline Core Stylesheet */
+:root {
+  --bg-950: #070a0f;
+  --bg-900: #0c1017;
+  --bg-850: #111722;
+  --bg-800: #161f30;
+  --bg-700: #222f46;
+  --border-color: #1f2c42;
+  --cyan-accent: #00f0ff;
+  --amber-accent: #fbbf24;
+  --green-accent: #22c55e;
+  --red-accent: #ef4444;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background-color: var(--bg-950);
+  color: #e2e8f0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  overflow-x: hidden;
+  user-select: none;
+}
+
+/* Local Monospace & Display Typography */
+.font-mono, input, select, textarea, button, table {
+  font-family: Consolas, "Courier New", Courier, monospace;
+}
+.font-lcd {
+  font-family: "Chakra Petch", Consolas, "Courier New", monospace;
+  letter-spacing: 0.05em;
+}
+.lcd-text {
+  text-shadow: 0 0 10px rgba(0, 240, 255, 0.45);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-900); }
+::-webkit-scrollbar-thumb { background: var(--bg-700); border-radius: 3px; }
+
+/* Grid Layout & Containers */
+.header-bar {
+  background-color: var(--bg-900);
+  border-bottom: 1px solid var(--border-color);
+  padding: 8px 16px;
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 16px;
+  padding: 16px;
+  max-width: 1920px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Card Styling & Drag-and-Drop */
+.shack-card {
+  background: var(--bg-900);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  transition: transform 0.15s, border-color 0.15s, opacity 0.15s;
+}
+.shack-card.dragging {
+  opacity: 0.4;
+  border: 1px dashed var(--cyan-accent);
+}
+.shack-card.drag-over {
+  border-color: var(--amber-accent);
+  transform: scale(0.99);
+}
+.card-header {
+  background: var(--bg-850);
+  border-bottom: 1px solid var(--border-color);
+  padding: 8px 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: grab;
+}
+.card-header:active { cursor: grabbing; }
+
+/* Digit Box Decade Tuning Controls */
+.digit-box {
+  position: relative;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 38px;
+  border-radius: 3px;
+  border: 1px solid transparent;
+  transition: background 0.15s, border-color 0.15s;
+}
+.digit-box:hover {
+  background: rgba(0, 240, 255, 0.15);
+  border-color: rgba(0, 240, 255, 0.4);
+}
+.digit-box .click-zone-up,
+.digit-box .click-zone-down {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 50%;
+  cursor: pointer;
+  z-index: 10;
+  display: flex;
+  justify-content: center;
+}
+.digit-box .click-zone-up { top: 0; align-items: flex-start; }
+.digit-box .click-zone-down { bottom: 0; align-items: flex-end; }
+.digit-box .arrow-ind {
+  opacity: 0;
+  font-size: 8px;
+  line-height: 1;
+  color: var(--cyan-accent);
+  transition: opacity 0.15s;
+}
+.digit-box:hover .arrow-ind { opacity: 0.9; }
+
+/* Side Drawer (Tucked Maps & Tools) */
+.drawer-rail {
+  position: fixed;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 45;
+}
+.drawer-tab-btn {
+  background: var(--bg-800);
+  border: 1px solid var(--border-color);
+  border-right: none;
+  border-radius: 6px 0 0 6px;
+  color: #94a3b8;
+  padding: 10px 6px;
+  font-size: 11px;
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.drawer-tab-btn:hover, .drawer-tab-btn.active {
+  background: var(--bg-700);
+  color: var(--cyan-accent);
+  border-color: var(--cyan-accent);
+}
+.slide-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  width: 60vw;
+  max-width: 950px;
+  height: 100vh;
+  background: var(--bg-900);
+  border-left: 2px solid var(--border-color);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.7);
+  transform: translateX(100%);
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+}
+.slide-drawer.open { transform: translateX(0); }
+.drawer-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+  z-index: 49;
+  display: none;
+}
+.drawer-backdrop.active { display: block; }
+
+/* Tactical Red Night Mode */
+body.night-mode { background-color: #060202 !important; color: #fca5a5 !important; }
+body.night-mode .header-bar,
+body.night-mode .shack-card,
+body.night-mode .slide-drawer { background-color: #120404 !important; border-color: #450a0a !important; }
+body.night-mode .card-header { background-color: #1a0505 !important; border-color: #450a0a !important; }
+body.night-mode .lcd-text,
+body.night-mode .digit-box span { color: #ef4444 !important; text-shadow: 0 0 8px rgba(239, 68, 68, 0.6) !important; }
+body.night-mode iframe { filter: invert(0.9) hue-rotate(170deg) contrast(1.2) brightness(0.85); }
