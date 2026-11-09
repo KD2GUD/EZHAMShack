@@ -57,7 +57,7 @@ EZHAMShack consolidates station control, digital mode integration, satellite tra
   Automated callsign verification via the FCC Callook API, Maidenhead grid calculation, Great Circle beam headings, and live carrier/audio bandwidth spillover edge detection against license privileges (Technician, General, Extra).
 
 ## Architecture Overview
-'''text
+```text
   ┌─────────────────────────────────────────────────────────┐
   │                 Physical Transceiver                    │
   │                  (Yaesu FT-991A, etc.)                  │
@@ -76,7 +76,7 @@ EZHAMShack consolidates station control, digital mode integration, satellite tra
   │               EZHAMShack Web Dashboard                  │
   │        (HTML5 Canvas, Vanilla JS, Tailwind CSS)         │
   └─────────────────────────────────────────────────────────┘
-'''
+```
 ## Transceiver Compatibility Matrix
 
 | Model | Status | CAT Engine | rigctld Emulation | Dual-Watch / Sub-RX | Satellite Split & CTCSS |
