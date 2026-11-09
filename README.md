@@ -1,40 +1,63 @@
 # EZHAMShack
 
-A modern, lightweight, cross-platform amateur radio station dashboard and hardware automation suite.
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Status: Public Beta](https://img.shields.io/badge/status-Public%20Beta%20v1.0.0--Beta-orange.svg)]()
+[![Website](https://img.shields.io/badge/website-ezhamshack.com-green.svg)](https://ezhamshack.com)
 
-![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)
-![Status: Public Beta](https://img.shields.io/badge/Status-Beta-orange.svg)
-![Python](https://img.shields.io/badge/Python-3.10%2B-brightgreen.svg)
-![Frontend](https://img.shields.io/badge/UI-Vanilla%20JS%20%2F%20Tailwind-38bdf8.svg)
+**A modern, lightweight, cross-platform amateur radio station dashboard and hardware automation suite.**
 
-**EZHAMShack** replaces bulky legacy shack tools, virtual COM port splitters, and fragmented utility windows with a unified browser interface backed by a lightweight, asynchronous local Python daemon.
+**Author:** Chris Nichols (Callsign: KD2GUD)  
+**Website:** [ezhamshack.com](https://ezhamshack.com)  
+**License:** GNU General Public License v3.0 (GPLv3)  
+**Tech Stack:** Python 3.10+ backend · Vanilla JavaScript · Tailwind CSS · HTML5 Canvas frontend  
+**Status:** Public Beta (v1.0.0-Beta)
 
 ---
 
-## Why EZHAMShack?
+## Why EZHAMShack
+
+Legacy amateur radio software often forces operators into a fragmented, resource-heavy desktop experience. Multiple windows, virtual COM port splitters that crash under port locks, and heavy native applications make it difficult to run a modern station—especially when operating across multi-band transceivers or monitoring satellites and digital traffic simultaneously.
+
+EZHAMShack consolidates station control, digital mode integration, satellite tracking, and logging into a single dark-mode browser SPA while providing a lightweight Python daemon that communicates directly with your radio hardware.
 
 | The Traditional Shack Stack | The EZHAMShack Approach |
-| :--- | :--- |
-| FLRIG or proprietary desktop suites eating memory | Lightweight local Python daemon holding the serial link |
-| Virtual COM port splitters causing driver collisions | Built-in `rigctld` emulator shares access across apps |
-| Multiple windows for CAT, satellites, and decodes | Single, high-performance dark-mode web dashboard |
-| Cluttered desktop screens on local machines only | Browser-based UI accessible from PC, tablet, or phone |
+| --- | --- |
+| Resource-heavy desktop apps (FLRIG, etc.) | Direct Python serial CAT engine with transceiver relay settling delays and thread-safe lock management |
+| Virtual COM port splitters that crash on port locks | Internal Hamlib rigctld server (TCP 127.0.0.1:4532) so WSJT-X, JTDX, and FLDIGI share the radio without conflicts |
+| Multiple disconnected windows (CAT, satellites, decodes) | Single 16-column modular fluid grid dashboard consolidating all station telemetry and widgets |
+| Disconnected log files and manual ADIF sync | Two-way live disk synchronization (`shack_log.adi`) with composite key deletion safeguards |
+| Fragmented satellite tuning tools | SGP4 orbital propagation, HTML5 Canvas polar radar, Doppler retuning, and automated cross-band split/CTCSS |
+| Rigid single-receiver displays | Dynamic hardware capability detection supporting dedicated VHF/UHF Sub-Receiver dual-watch monitoring |
 
----
+## Core Architectural Capabilities
 
-## Key Features
+- **Direct Hardware CAT Engine**  
+  Native asynchronous Python serial driver (`pyserial`) with hardware-specific command pacing and relay settling delays. Direct serial access eliminates intermediary layers like FLRIG.
 
-* **Direct Hardware CAT Engine:** Native Python serial engine (`pyserial`) with rig-specific relay settling delays. Direct, low-latency control without relying on FLRIG.
-* **Internal Hamlib `rigctld` Server (`127.0.0.1:4532`):** Multiplexes rig access. Run third-party digital mode tools (WSJT-X, FLDIGI) concurrently with the dashboard without serial port locks.
-* **Headless WSJT-X / FT8 Dashboard:** Ingests live decodes over UDP (port 2237), provides an in-browser 15-second cycle timer, one-click CQ responses, and an instant Emergency TX Halt button.
-* **Integrated Satellite Tracker:** Real-time SGP4 orbital propagation, HTML5 Canvas polar radar, next-pass predictions, and automated Doppler frequency compensation. Automatically engages cross-band split and CTCSS tones on supported transceivers during passes.
-* **Built-in Station Utilities:** FCC Callook API + offline DXCC prefix lookup, Maidenhead grid distance and Great Circle bearing calculations, and QuickLog with standard ADIF 3.1 export.
+- **WebSocket Telemetry Bridge (`ws://127.0.0.1:8088`)**  
+  High-speed bidirectional event bridge pushing live frequency, mode, S-meter, forward power, SWR, and rig state directly into the browser dashboard.
 
----
+- **Internal Hamlib rigctld Server (`TCP 127.0.0.1:4532`)**  
+  Built-in `rigctld` server emulation handling initialization protocol handshakes (`\chk_vfo`, `\dump_state`), frequency/mode tracking, and PTT toggling for external programs (WSJT-X, JTDX, FLDIGI) without serial bus collisions.
+
+- **Dual-Watch & Sub-Receiver Architecture**  
+  Hardware-aware capability gating. Automatically provides dedicated secondary VFO tuning, independent S-meter telemetry, audio gain, mute, and quick-pick channels when connected to dual-watch transceivers (such as the Kenwood TS-2000).
+
+- **Headless WSJT-X / FT8 Dashboard**  
+  Listens to the WSJT-X UDP broadcast on port 2237. Features an in-browser 15-second cycle timer, activity decodes, one-click CQ replies, and an immediate red Emergency TX Halt control.
+
+- **Hardware-Agnostic Satellite Tracking**  
+  Real-time SGP4 orbital propagation, next-pass predictions, HTML5 Canvas polar radar, dynamic downlink/uplink Doppler shift retuning, and automated CAT dispatch for cross-band splits and CTCSS tone actuation.
+
+- **Two-Way ADIF Sync Engine (`shack_log.adi`)**  
+  Automatic disk persistence adhering to the ADIF 3.1.4 standard. Reads records on startup, broadcasts real-time additions to connected clients, and enforces confirmation-gated deletions using a three-point composite key (`CALL` + `QSO_DATE` + `TIME_ON`).
+
+- **FCC License & Band Privilege Engine**  
+  Automated callsign verification via the FCC Callook API, Maidenhead grid calculation, Great Circle beam headings, and live carrier/audio bandwidth spillover edge detection against license privileges (Technician, General, Extra).
 
 ## Architecture Overview
 
-```text
   ┌─────────────────────────────────────────────────────────┐
   │                 Physical Transceiver                    │
   │                  (Yaesu FT-991A, etc.)                  │
@@ -53,3 +76,35 @@ A modern, lightweight, cross-platform amateur radio station dashboard and hardwa
   │               EZHAMShack Web Dashboard                  │
   │        (HTML5 Canvas, Vanilla JS, Tailwind CSS)         │
   └─────────────────────────────────────────────────────────┘
+
+## Transceiver Compatibility Matrix
+
+| Model | Status | CAT Engine | rigctld Emulation | Dual-Watch / Sub-RX | Satellite Split & CTCSS |
+| --- | --- | --- | --- | --- | --- |
+| **Yaesu FT-991A** | Supported (Beta) | Native Serial (38400 baud) | Yes (Port 4532) | N/A (Single Receiver) | Automated (`FT2`/`FT3`/`SV`) |
+| **Kenwood TS-2000** | Supported (Beta) | Native Serial (9600 baud) | Yes (Port 4532) | Full Sub-VFO Control | Automated (`SP1`/`TF-SET`) |
+| **Icom IC-7300** | In Development | CI-V Protocol | Planned | N/A (HF/6m) | N/A |
+| **Elecraft (K3 / KX3)** | Planned | Direct Serial | Planned | Planned | Planned |
+
+## Privacy & Station Configuration Policy
+
+**Personal operator information must never be hardcoded into the codebase.**
+
+All station parameters—callsign, license class, Maidenhead grid locator, geographic coordinates, and layout configurations—are managed dynamically:
+
+* **In-Dashboard Configuration:** Set your station callsign, grid, power, and hardware settings via the **Settings Modal** (accessible from the top header).
+* **Browser Persistence:** Configurations are safely stored locally in browser `localStorage` under `EZSHACK_STATE_V1` and never transmitted to external third-party servers.
+* **Backup & Migration:** Export and import your complete station configuration as a standalone JSON file directly through the **Backup & Reset** tab in Settings.
+
+## Quick Start Guide
+
+### Windows Setup (Automated)
+
+1. Clone or download the repository
+2. Unzip and copy the file to C:\EZShack
+3. CD C:\EZShack
+4. Run install.bat - this will launch a powershell installer that will install python and required libraries.
+5. Once installation is complete, connect your radio via serial or USB, turn it on and run launcher.bat
+6. Launcher will start the python daemons to detect your radio's COM port, baud rate and type, then launches the dashboard in a browser.
+7. Complete the initial configuration (CALL SIGN, Grid Square, etc.) and you're running.
+
