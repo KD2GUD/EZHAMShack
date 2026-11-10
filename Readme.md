@@ -38,8 +38,14 @@ EZHAMShack consolidates station control, digital mode integration, satellite tra
 - **WebSocket Telemetry Bridge (`ws://127.0.0.1:8088`)**  
   High-speed bidirectional event bridge pushing live frequency, mode, S-meter, forward power, SWR, and rig state directly into the browser dashboard.
 
+- **Internal Hamlib rigctld Server (`TCP 127.0.0.1:4532`)**  
+  Built-in `rigctld` server emulation handling initialization protocol handshakes (`\chk_vfo`, `\dump_state`), frequency/mode tracking, and PTT toggling for external programs (WSJT-X, JTDX, FLDIGI) without serial bus collisions.
+
 - **Dual-Watch & Sub-Receiver Architecture**  
   Hardware-aware capability gating. Automatically provides dedicated secondary VFO tuning, independent S-meter telemetry, audio gain, mute, and quick-pick channels when connected to dual-watch transceivers (such as the Kenwood TS-2000).
+
+- **Headless WSJT-X / FT8 Dashboard**  
+  Listens to the WSJT-X UDP broadcast on port 2237. Features an in-browser 15-second cycle timer, activity decodes, one-click CQ replies, and an immediate red Emergency TX Halt control.
 
 - **Hardware-Agnostic Satellite Tracking**  
   Real-time SGP4 orbital propagation, next-pass predictions, HTML5 Canvas polar radar, dynamic downlink/uplink Doppler shift retuning, and automated CAT dispatch for cross-band splits and CTCSS tone actuation.
