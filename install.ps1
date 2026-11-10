@@ -111,22 +111,22 @@ try {
         Write-Host "  [WARNING] Dependency import test failed: $checkResult" -ForegroundColor Red
     }
 
-    # 4. Initialize Local Station Log Directory
-    Write-Host "`n[4/5] Initializing local station directory..." -ForegroundColor Yellow
-    $ShackDir = "C:\ezshack"
-    if (-not (Test-Path $ShackDir)) {
-        New-Item -Path $ShackDir -ItemType Directory -Force | Out-Null
-        Write-Host "  Created station directory: $ShackDir" -ForegroundColor Green
-    } else {
-        Write-Host "  Station directory verified: $ShackDir" -ForegroundColor Green
-    }
+# 4. Initialize Local Station Log Directory
+Write-Host "`n[4/5] Initializing local station directory..." -ForegroundColor Yellow
+$ShackDir = Join-Path $InstallDir "logs"
+if (-not (Test-Path $ShackDir)) {
+    New-Item -Path $ShackDir -ItemType Directory -Force | Out-Null
+    Write-Host "  Created station directory: $ShackDir" -ForegroundColor Green
+} else {
+    Write-Host "  Station directory verified: $ShackDir" -ForegroundColor Green
+}
 
-    $AdifPath = Join-Path $ShackDir "shack_log.adi"
-    if (-not (Test-Path $AdifPath)) {
-        $adifHeader = "<ADIF_VER:5>3.1.4`n<PROGRAMID:7>EZShack`n<PROGRAMVERSION:5>1.0.0`n<EOH>`n"
-        [System.IO.File]::WriteAllText($AdifPath, $adifHeader, [System.Text.Encoding]::ASCII)
-        Write-Host "  Initialized master ADIF log file: $AdifPath" -ForegroundColor Green
-    }
+$AdifPath = Join-Path $ShackDir "shack_log.adi"
+if (-not (Test-Path $AdifPath)) {
+    $adifHeader = "<ADIF_VER:5>3.1.4`n<PROGRAMID:7>EZShack`n<PROGRAMVERSION:5>1.0.0`n<EOH>`n"
+    [System.IO.File]::WriteAllText($AdifPath, $adifHeader, [System.Text.Encoding]::ASCII)
+    Write-Host "  Initialized master ADIF log file: $AdifPath" -ForegroundColor Green
+}
 
     # 5. Create Desktop Shortcut to launcher.bat
     Write-Host "`n[5/5] Creating Desktop Shortcut..." -ForegroundColor Yellow

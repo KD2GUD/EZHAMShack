@@ -165,6 +165,7 @@
           lat: lat,
           lon: lon,
           county: countryName,
+          location: `${countryName} [${rule.continent}]`,
           line1: `${countryName} [${rule.continent}]`,
           line2: `CQ Zone: ${rule.waz} | ITU Zone: ${rule.itu}`,
           grantDate: '',
@@ -305,6 +306,11 @@
           const loc = data.location || {};
           const oth = data.otherInfo || {};
           const add = data.address || {};
+
+          // Extract City and State from line2, stripping trailing 5-digit or 9-digit zip code
+          const rawLine2 = add.line2 || '';
+          const cityState = rawLine2.replace(/\s+\d{5}(-\d{4})?$/, '').trim();
+
           stationData = {
             callsign: cur.callsign || data.name,
             name: data.name || 'Not Available',
@@ -313,8 +319,7 @@
             lat: loc.latitude ? parseFloat(loc.latitude) : null,
             lon: loc.longitude ? parseFloat(loc.longitude) : null,
             county: loc.county || '',
-            line1: add.line1 || '',
-            line2: add.line2 || '',
+            location: cityState || rawLine2 || (loc.county ? `${loc.county}, USA` : 'United States'),
             grantDate: oth.grantDate || '',
             expiryDate: oth.expiryDate || '',
             source: 'FCC / callook.info'
@@ -393,6 +398,8 @@
       beamHtml = '<span class="text-amber-500 text-[10px]">Set Station Grid in Settings</span>';
     }
 
+    const displayLocation = data.location || '---';
+
     card.innerHTML = `
       <div class="space-y-3">
         <div class="flex items-center justify-between border-b border-shack-800 pb-2">
@@ -417,7 +424,7 @@
         <div class="bg-shack-900/80 p-2 rounded border border-shack-800 text-[11px] space-y-1">
           <div class="flex justify-between">
             <span class="text-slate-400">Location:</span>
-            <span class="text-slate-200 font-medium truncate max-w-[210px]" title="${data.line1} ${data.line2}">${data.line1 || data.line2 || '---'}</span>
+            <span class="text-slate-200 font-medium truncate max-w-[210px]" title="${displayLocation}">${displayLocation}</span>
           </div>
           ${data.county ? `
             <div class="flex justify-between">
@@ -466,8 +473,7 @@
 
     const gcInput = document.getElementById('calcTargetGrid');
     if (gcInput && grid) {
-      targetInput = gcInput;
-      targetInput.value = grid;
+      gcInput.value = grid;
       if (typeof window.runBearingCalculation === 'function') {
         window.runBearingCalculation();
       }

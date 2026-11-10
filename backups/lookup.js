@@ -6,10 +6,6 @@
 (function() {
   if (!window.EZWidgets) window.EZWidgets = {};
 
-  // Initialize Sync State
-  if (!window.appState) window.appState = {};
-  if (!window.appState.sync) window.appState.sync = { lookup: true, logger: true, greatCircle: true };
-
   let lookupHistory = [];
   try {
     const saved = localStorage.getItem('EZSHACK_LOOKUP_HIST');
@@ -22,36 +18,6 @@
     } catch (e) {}
   }
 
-  function maidenheadToLatLon(grid) {
-    if (!grid || typeof grid !== 'string') return null;
-    const clean = grid.trim().toUpperCase();
-    if (clean.length < 4) return null;
-
-    const fLon = clean.charCodeAt(0) - 65;
-    const fLat = clean.charCodeAt(1) - 65;
-    const sLon = parseInt(clean.charAt(2), 10);
-    const sLat = parseInt(clean.charAt(3), 10);
-
-    if (fLon < 0 || fLon > 17 || fLat < 0 || fLat > 17 || isNaN(sLon) || isNaN(sLat)) return null;
-
-    let lon = -180 + (fLon * 20) + (sLon * 2);
-    let lat = -90 + (fLat * 10) + sLat;
-
-    if (clean.length >= 6) {
-      const subLon = clean.charCodeAt(4) - 65;
-      const subLat = clean.charCodeAt(5) - 65;
-      if (subLon >= 0 && subLon <= 23 && subLat >= 0 && subLat <= 23) {
-        lon += (subLon * (2 / 24)) + (1 / 24);
-        lat += (subLat * (1 / 24)) + (0.5 / 24);
-        return { lat, lon };
-      }
-    }
-
-    lon += 1.0;
-    lat += 0.5;
-    return { lat, lon };
-  }
-
   function getObserverStation() {
     const profile = window.appState?.profile;
     if (!profile) return null;
@@ -59,8 +25,8 @@
     let lat = null;
     let lon = null;
 
-    if (profile.grid && profile.grid.length >= 4) {
-      const coords = maidenheadToLatLon(profile.grid);
+    if (profile.grid && profile.grid.length >= 4 && window.maidenheadToLatLon) {
+      const coords = window.maidenheadToLatLon(profile.grid);
       if (coords) {
         lat = coords.lat;
         lon = coords.lon;
@@ -78,7 +44,6 @@
     return { lat, lon, grid: profile.grid || '' };
   }
 
-  // Corrected Great Circle bearing formula (Math.cos(dLon))
   function calculateDistanceAndBearing(lat1, lon1, lat2, lon2) {
     const R = 6371;
     const dLat = (lat2 - lat1) * Math.PI / 180.0;
@@ -95,7 +60,7 @@
 
     const y = Math.sin(dLon) * Math.cos(rLat2);
     const x = Math.cos(rLat1) * Math.sin(rLat2) -
-              Math.sin(rLat1) * Math.cos(rLat2) * Math.cos(dLon);
+              Math.sin(rLat1) * Math.cos(rLat2) * Math.cos(dLat);
     let bearing = Math.atan2(y, x) * 180.0 / Math.PI;
     bearing = (bearing + 360.0) % 360.0;
 
@@ -110,6 +75,9 @@
     };
   }
 
+  /* =====================================================================
+     COMPREHENSIVE DXCC / ITU REGEX ENGINE
+     ===================================================================== */
   const DXCC_RULES = [
     { regex: /^([AKNW]H6|[AKNW]L6)/i, country: 'Hawaii', continent: 'OC', grid: 'BL11', lat: 21.30, lon: -157.85, waz: 31, itu: 61 },
     { regex: /^([AKNW]L7|[AKNW]L0)/i, country: 'Alaska', continent: 'NA', grid: 'BP51', lat: 61.21, lon: -149.90, waz: 1, itu: 1 },
@@ -119,10 +87,7 @@
     { regex: /^([KWN]|A[A-L])[0-9]/i, country: 'United States', continent: 'NA', grid: 'EM79', lat: 39.10, lon: -84.51, waz: 4, itu: 8 },
     { 
       regex: /^(J[A-S]|7[J-N]|8[J-N])([0-9])/i, 
-      country: 'Japan', 
-      continent: 'AS', 
-      waz: 25, 
-      itu: 45,
+      country: 'Japan', continent: 'AS', waz: 25, itu: 45,
       resolve: function(matches) {
         const area = matches[2];
         const JA_AREAS = {
@@ -134,22 +99,44 @@
           '6': { region: 'Kyushu & Okinawa', grid: 'PM53', lat: 33.59, lon: 130.40 },
           '7': { region: 'Tohoku', grid: 'QM08', lat: 38.26, lon: 140.86 },
           '8': { region: 'Hokkaido', grid: 'QN03', lat: 43.06, lon: 141.35 },
-          '9': { region: 'Hokuriku', grid: 'PM86', lat: 36.56, lon: 136.65 },
-          '0': { region: 'Shinetsu', grid: 'PM96', lat: 36.65, lon: 138.19 }
+          '9': { region: 'Hokuriku (Fukui/Toyama/Ishikawa)', grid: 'PM86', lat: 36.56, lon: 136.65 },
+          '0': { region: 'Shinetsu (Nagano/Niigata)', grid: 'PM96', lat: 36.65, lon: 138.19 }
         };
         const loc = JA_AREAS[area] || { region: 'Mainland', grid: 'PM95', lat: 35.68, lon: 139.76 };
         return { country: `Japan (${loc.region} - Area ${area})`, grid: loc.grid, lat: loc.lat, lon: loc.lon };
       }
     },
     { regex: /^(VE|VA|VO|VY)[0-9]/i, country: 'Canada', continent: 'NA', grid: 'FN25', lat: 45.42, lon: -75.69, waz: 4, itu: 9 },
+    { regex: /^(GD|2D)/i, country: 'Isle of Man', continent: 'EU', grid: 'IO74', lat: 54.23, lon: -4.54, waz: 14, itu: 27 },
+    { regex: /^(GI|2I)/i, country: 'Northern Ireland', continent: 'EU', grid: 'IO64', lat: 54.60, lon: -5.93, waz: 14, itu: 27 },
+    { regex: /^(GJ|2J)/i, country: 'Jersey', continent: 'EU', grid: 'IN89', lat: 49.21, lon: -2.13, waz: 14, itu: 27 },
+    { regex: /^(GM|2M)/i, country: 'Scotland', continent: 'EU', grid: 'IO75', lat: 55.86, lon: -4.25, waz: 14, itu: 27 },
+    { regex: /^(GU|2U)/i, country: 'Guernsey', continent: 'EU', grid: 'IN89', lat: 49.46, lon: -2.58, waz: 14, itu: 27 },
+    { regex: /^(GW|2W)/i, country: 'Wales', continent: 'EU', grid: 'IO81', lat: 51.48, lon: -3.18, waz: 14, itu: 27 },
     { regex: /^(G|M|2E)[0-9]/i, country: 'England', continent: 'EU', grid: 'IO91', lat: 51.50, lon: -0.12, waz: 14, itu: 27 },
     { regex: /^D[A-R]/i, country: 'Germany', continent: 'EU', grid: 'JO40', lat: 50.11, lon: 8.68, waz: 14, itu: 28 },
     { regex: /^F[0-9A-Z]/i, country: 'France', continent: 'EU', grid: 'JN18', lat: 48.85, lon: 2.35, waz: 14, itu: 27 },
     { regex: /^E[A-H][0-9]/i, country: 'Spain', continent: 'EU', grid: 'IN80', lat: 40.41, lon: -3.70, waz: 14, itu: 37 },
     { regex: /^I[0-9A-Z]/i, country: 'Italy', continent: 'EU', grid: 'JN61', lat: 41.90, lon: 12.50, waz: 15, itu: 28 },
+    { regex: /^C[T-U]/i, country: 'Portugal', continent: 'EU', grid: 'IN51', lat: 38.72, lon: -9.13, waz: 14, itu: 37 },
+    { regex: /^HB[0-9]/i, country: 'Switzerland', continent: 'EU', grid: 'JN36', lat: 46.94, lon: 7.44, waz: 14, itu: 28 },
+    { regex: /^OE[0-9]/i, country: 'Austria', continent: 'EU', grid: 'JN88', lat: 48.20, lon: 16.37, waz: 15, itu: 28 },
+    { regex: /^P[A-I]/i, country: 'Netherlands', continent: 'EU', grid: 'JO22', lat: 52.37, lon: 4.89, waz: 14, itu: 27 },
+    { regex: /^O[N-T]/i, country: 'Belgium', continent: 'EU', grid: 'JO20', lat: 50.85, lon: 4.35, waz: 14, itu: 27 },
+    { regex: /^S[A-M]/i, country: 'Sweden', continent: 'EU', grid: 'JO89', lat: 59.32, lon: 18.06, waz: 14, itu: 18 },
+    { regex: /^L[A-N]/i, country: 'Norway', continent: 'EU', grid: 'JO59', lat: 59.91, lon: 10.75, waz: 14, itu: 18 },
+    { regex: /^O[F-I]/i, country: 'Finland', continent: 'EU', grid: 'KP20', lat: 60.16, lon: 24.93, waz: 15, itu: 18 },
+    { regex: /^O[U-Z]/i, country: 'Denmark', continent: 'EU', grid: 'JO65', lat: 55.67, lon: 12.56, waz: 14, itu: 18 },
+    { regex: /^S[N-R]/i, country: 'Poland', continent: 'EU', grid: 'KO02', lat: 52.23, lon: 21.01, waz: 15, itu: 28 },
+    { regex: /^(R[A-Z]|U[A-I])/i, country: 'European Russia', continent: 'EU', grid: 'KO85', lat: 55.75, lon: 37.61, waz: 16, itu: 29 },
     { regex: /^V[KL][0-9]/i, country: 'Australia', continent: 'OC', grid: 'QF56', lat: -33.86, lon: 151.20, waz: 30, itu: 59 },
     { regex: /^ZL[0-9]/i, country: 'New Zealand', continent: 'OC', grid: 'RE78', lat: -41.28, lon: 174.77, waz: 32, itu: 60 },
-    { regex: /^P[P-Y]/i, country: 'Brazil', continent: 'SA', grid: 'GG66', lat: -23.55, lon: -46.63, waz: 11, itu: 72 }
+    { regex: /^(B[A-L]|B[Q-Z])/i, country: 'China', continent: 'AS', grid: 'OM89', lat: 39.90, lon: 116.40, waz: 24, itu: 44 },
+    { regex: /^(DS|DT|HL)/i, country: 'South Korea', continent: 'AS', grid: 'PM37', lat: 37.56, lon: 126.97, waz: 25, itu: 44 },
+    { regex: /^(VU|A[T-W])/i, country: 'India', continent: 'AS', grid: 'MK82', lat: 28.61, lon: 77.20, waz: 22, itu: 41 },
+    { regex: /^P[P-Y]/i, country: 'Brazil', continent: 'SA', grid: 'GG66', lat: -23.55, lon: -46.63, waz: 11, itu: 72 },
+    { regex: /^L[U-W]/i, country: 'Argentina', continent: 'SA', grid: 'GF05', lat: -34.60, lon: -58.38, waz: 13, itu: 73 },
+    { regex: /^Z[R-U]/i, country: 'South Africa', continent: 'AF', grid: 'KG33', lat: -26.20, lon: 28.04, waz: 38, itu: 57 }
   ];
 
   function lookupDxccByRegex(call) {
@@ -172,7 +159,7 @@
 
         return {
           callsign: clean,
-          name: countryName,
+          name: `${countryName}`,
           operClass: `DX Entity (${rule.continent})`,
           grid: grid,
           lat: lat,
@@ -189,6 +176,7 @@
     return null;
   }
 
+  /* --- Widget UI Definition --- */
   const lookupWidgetDefinition = {
     id: 'callsign_lookup',
     title: 'Callsign & Station Research',
@@ -198,68 +186,74 @@
     defaultW: 6,
     defaultH: 8,
 
-    render(instanceId) {
+    render(containerOrId, pane) {
+      const instId = (pane && pane.instanceId) ? pane.instanceId : (typeof containerOrId === 'string' ? containerOrId : 'lookup_panel');
       const wrapper = document.createElement('div');
-      wrapper.id = `lookupWidget-${instanceId}`;
+      wrapper.id = `lookupWidget-${instId}`;
       wrapper.className = 'w-full h-full p-3 overflow-y-auto text-xs font-mono text-slate-200 select-text flex flex-col justify-between space-y-2';
 
-      const isSync = Boolean(window.appState.sync?.lookup);
+      const isSync = window.getPanelSync ? window.getPanelSync('lookup') : true;
 
       wrapper.innerHTML = `
         <div class="bg-shack-850 p-2.5 rounded border border-shack-border shrink-0 space-y-2">
-          <div class="flex items-center justify-between text-[10px] text-slate-400">
-            <span class="font-bold uppercase tracking-wider text-slate-300">Callbook Lookup</span>
-            <button id="btnToggleLookupSync-${instanceId}" type="button" onclick="window.togglePanelSync('lookup', '${instanceId}')" class="px-2 py-0.5 rounded font-mono font-bold text-[10px] border transition ${isSync ? 'bg-cyan-950 text-cyan-400 border-cyan-800' : 'bg-shack-900 text-slate-500 border-shack-700 hover:text-slate-300'}">
-              SYNC: ${isSync ? 'ON' : 'OFF'}
-            </button>
-          </div>
-
-          <form onsubmit="window.executeCallsignLookup('${instanceId}', event, true)" class="flex items-center gap-1.5">
+          <form onsubmit="window.executeCallsignLookup('${instId}', event)" class="flex items-center gap-1.5">
             <div class="relative flex-1">
               <input 
-                id="lookupCallInput-${instanceId}" 
+                id="lookupCallInput-${instId}" 
                 type="text" 
-                placeholder="CALLSIGN (e.g. JE9PEL, W1AW)" 
-                onblur="window.handleLookupBlur('${instanceId}')"
+                placeholder="CALLSIGN (e.g. JE9PEL, W1AW, G4...)" 
+                onblur="window.handleLookupBlur('${instId}', this.value)"
                 class="w-full bg-shack-950 border border-shack-700 text-amber-400 font-bold px-3 py-1.5 rounded uppercase placeholder:text-slate-600 focus:outline-none focus:border-cyan-400 text-xs tracking-wider"
                 autocomplete="off"
                 spellcheck="false"
               />
             </div>
+            <button 
+              type="button" 
+              id="btnSync-lookup" 
+              data-sync-panel="lookup"
+              onclick="window.togglePanelSync('lookup', this)" 
+              title="Toggle auto-sync with QuickLog & Great Circle"
+              class="px-2 py-1.5 rounded font-mono font-bold text-[10px] border transition ${isSync ? 'bg-cyan-950 text-cyan-400 border-cyan-800' : 'bg-shack-900 text-slate-500 border-shack-700 hover:text-slate-300'}"
+            >
+              SYNC: ${isSync ? 'ON' : 'OFF'}
+            </button>
             <button type="submit" class="px-3 py-1.5 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-300 font-bold rounded text-xs transition flex items-center gap-1">
               <span>🔍 Lookup</span>
             </button>
-            <button type="button" onclick="window.clearLookupPanel('${instanceId}')" class="px-2 py-1.5 bg-shack-800 hover:bg-shack-700 border border-shack-700 text-slate-400 hover:text-white rounded text-xs transition" title="Clear panel">
+            <button type="button" onclick="window.clearLookupPanel('${instId}')" class="px-2 py-1.5 bg-shack-800 hover:bg-shack-700 border border-shack-700 text-slate-400 hover:text-white rounded text-xs transition" title="Clear panel">
               ✕
             </button>
           </form>
 
-          <div id="lookupHistoryStrip-${instanceId}" class="flex items-center gap-1.5 overflow-x-auto text-[10px] pb-0.5"></div>
+          <div id="lookupHistoryStrip-${instId}" class="flex items-center gap-1.5 overflow-x-auto text-[10px] pb-0.5"></div>
         </div>
 
-        <div id="lookupResultCard-${instanceId}" class="flex-1 bg-shack-850 border border-shack-border rounded p-3 flex flex-col justify-between">
+        <div id="lookupResultCard-${instId}" class="flex-1 bg-shack-850 border border-shack-border rounded p-3 flex flex-col justify-between">
           <div class="text-center py-8 text-slate-500 text-xs">
-            Enter a callsign above to retrieve operator details, Maidenhead grid, and true Great Circle beam headings.
+            Enter a US or international callsign above to retrieve operator details, Maidenhead grid, and geodetic beam headings.
           </div>
         </div>
 
-        <div id="lookupActionFooter-${instanceId}" class="bg-shack-900 border border-shack-border rounded p-2 flex items-center justify-between text-xs hidden">
+        <div id="lookupActionFooter-${instId}" class="bg-shack-900 border border-shack-border rounded p-2 flex items-center justify-between text-xs hidden">
           <div class="flex items-center gap-2">
-            <button type="button" onclick="window.applyLookupToGreatCircle('${instanceId}')" class="px-2.5 py-1 bg-shack-800 hover:bg-amber-500 hover:text-black border border-shack-700 text-amber-300 font-bold rounded text-[11px] transition flex items-center gap-1">
+            <button type="button" onclick="window.applyLookupToGreatCircle('${instId}')" class="px-2.5 py-1 bg-shack-800 hover:bg-amber-500 hover:text-black border border-shack-700 text-amber-300 font-bold rounded text-[11px] transition flex items-center gap-1" title="Steer Great Circle rotator map to target station">
               🎯 Aim Antenna
             </button>
-            <button type="button" onclick="window.applyLookupToQuickLog('${instanceId}')" class="px-2.5 py-1 bg-shack-800 hover:bg-cyan-500 hover:text-black border border-shack-700 text-cyan-300 font-bold rounded text-[11px] transition flex items-center gap-1">
+            <button type="button" onclick="window.applyLookupToQuickLog('${instId}')" class="px-2.5 py-1 bg-shack-800 hover:bg-cyan-500 hover:text-black border border-shack-700 text-cyan-300 font-bold rounded text-[11px] transition flex items-center gap-1" title="Copy station details into QuickLog form">
               📝 Stage in Log
             </button>
           </div>
-          <a id="lookupQrzLink-${instanceId}" href="#" target="_blank" class="text-[10px] text-slate-400 hover:text-cyan-400 underline flex items-center gap-0.5">
+          <a id="lookupQrzLink-${instId}" href="#" target="_blank" class="text-[10px] text-slate-400 hover:text-cyan-400 underline flex items-center gap-0.5">
             QRZ.com Profile ↗
           </a>
         </div>
       `;
 
       setTimeout(() => {
-        window.refreshLookupHistoryUI(instanceId);
+        window.refreshLookupHistoryUI(instId);
+        const input = document.getElementById(`lookupCallInput-${instId}`);
+        if (input) input.focus();
       }, 50);
 
       return wrapper;
@@ -270,21 +264,22 @@
   window.EZWidgets.callsign_lookup = lookupWidgetDefinition;
   window.EZWidgets.lookup = lookupWidgetDefinition;
 
-  // On Blur Handler
-  window.handleLookupBlur = function(instanceId) {
-    const input = document.getElementById(`lookupCallInput-${instanceId}`);
-    if (!input || !input.value.trim()) return;
-    window.executeCallsignLookup(instanceId, null, false);
+  /* --- Blur Handler for Lookup Panel --- */
+  window.handleLookupBlur = function(instanceId, callVal) {
+    const clean = (callVal || '').trim().toUpperCase();
+    if (!clean || clean.length < 3) return;
+
+    window.executeCallsignLookup(instanceId);
   };
 
-  // Cascading Lookup
-  window.executeCallsignLookup = async function(instanceId, event, isManualSubmit = false) {
+  /* --- Cascading Query Engine --- */
+  window.executeCallsignLookup = async function(instanceId, event) {
     if (event) event.preventDefault();
 
     const input = document.getElementById(`lookupCallInput-${instanceId}`);
     if (!input) return;
     const rawCall = input.value.trim().toUpperCase();
-    if (!rawCall || rawCall.length < 3) return;
+    if (!rawCall) return;
 
     const card = document.getElementById(`lookupResultCard-${instanceId}`);
     const footer = document.getElementById(`lookupActionFooter-${instanceId}`);
@@ -300,6 +295,7 @@
 
     let stationData = null;
 
+    // 1. Check US FCC database via callook.info
     try {
       const resp = await fetch(`https://callook.info/${encodeURIComponent(rawCall)}/json`);
       if (resp.ok) {
@@ -329,37 +325,42 @@
       console.warn('[Lookup] callook.info check failed or offline:', err);
     }
 
+    // 2. Offline International DXCC Regular Expression Matcher
     if (!stationData) {
       stationData = lookupDxccByRegex(rawCall);
     }
 
+    // 3. Render Card & Broadcast to Shack
     if (stationData) {
       window.renderLookupCard(instanceId, stationData);
+
+      // Broadcast target to QuickLog and Great Circle
+      if (window.syncShackTarget) {
+        window.syncShackTarget('lookup', { call: stationData.callsign, grid: stationData.grid });
+      }
+
       if (!lookupHistory.includes(stationData.callsign)) {
         lookupHistory.unshift(stationData.callsign);
         saveLookupHistory();
         window.refreshLookupHistoryUI(instanceId);
-      }
-
-      // Broadcast if sync is enabled on lookup panel
-      if (window.appState.sync?.lookup) {
-        window.broadcastShackSync('lookup', {
-          call: stationData.callsign,
-          grid: stationData.grid,
-          bearing: card.getAttribute('data-target-bearing')
-        });
       }
     } else {
       card.innerHTML = `
         <div class="text-center py-8 space-y-2">
           <div class="text-amber-400 font-bold text-sm">Station Not Found: "${rawCall}"</div>
           <p class="text-slate-400 text-xs max-w-sm mx-auto">No matching licensing record or international prefix allocation was recognized.</p>
+          <div class="pt-2">
+            <a href="https://www.qrz.com/db/${encodeURIComponent(rawCall)}" target="_blank" class="inline-block px-3 py-1.5 bg-shack-800 hover:bg-shack-700 border border-shack-700 text-cyan-400 rounded text-xs">
+              Open "${rawCall}" on QRZ.com ↗
+            </a>
+          </div>
         </div>
       `;
       if (footer) footer.classList.add('hidden');
     }
   };
 
+  /* --- Render Station Profile Card --- */
   window.renderLookupCard = function(instanceId, data) {
     const card = document.getElementById(`lookupResultCard-${instanceId}`);
     const footer = document.getElementById(`lookupActionFooter-${instanceId}`);
@@ -373,8 +374,8 @@
     let beamHtml = '<span class="text-slate-500 font-mono">Grid needed for beam</span>';
     const obs = getObserverStation();
 
-    if ((data.lat === null || data.lon === null) && data.grid) {
-      const c = maidenheadToLatLon(data.grid);
+    if ((data.lat === null || data.lon === null) && data.grid && window.maidenheadToLatLon) {
+      const c = window.maidenheadToLatLon(data.grid);
       if (c) {
         data.lat = c.lat;
         data.lon = c.lon;
@@ -425,10 +426,17 @@
             </div>
           ` : ''}
           <div class="flex justify-between items-center pt-1 border-t border-shack-800/60">
-            <span class="text-slate-400">Short Path Great Circle Beam:</span>
+            <span class="text-slate-400">Short Path Beam:</span>
             <div>${beamHtml}</div>
           </div>
         </div>
+
+        ${data.expiryDate ? `
+          <div class="flex justify-between text-[10px] text-slate-400 pt-1">
+            <span>Granted: <b class="text-slate-300">${data.grantDate || '---'}</b></span>
+            <span>Expires: <b class="text-slate-300">${data.expiryDate || '---'}</b></span>
+          </div>
+        ` : ''}
       </div>
     `;
 
@@ -436,22 +444,76 @@
     if (qrzLink) qrzLink.href = `https://www.qrz.com/db/${encodeURIComponent(data.callsign)}`;
   };
 
+  /* --- Direct Shack Hook: Aim Antenna (Great Circle) --- */
   window.applyLookupToGreatCircle = function(instanceId) {
     const card = document.getElementById(`lookupResultCard-${instanceId}`);
     if (!card) return;
+
     const grid = card.getAttribute('data-target-grid') || '';
-    const bearing = card.getAttribute('data-target-bearing');
-    window.broadcastShackSync('lookup', { grid, bearing });
+    const call = card.getAttribute('data-target-call') || '';
+    let rawBearing = card.getAttribute('data-target-bearing');
+    let bearingNum = rawBearing !== null && rawBearing !== '' ? parseFloat(rawBearing) : null;
+
+    if (!grid && bearingNum === null) {
+      if (typeof window.showToast === 'function') window.showToast('No grid coordinates available to aim antenna.');
+      return;
+    }
+
+    if (window.appState) {
+      window.appState.targetGrid = grid;
+      if (bearingNum !== null) window.appState.rotatorBearing = bearingNum;
+    }
+
+    const gcInput = document.getElementById('calcTargetGrid');
+    if (gcInput && grid) {
+      targetInput = gcInput;
+      targetInput.value = grid;
+      if (typeof window.runBearingCalculation === 'function') {
+        window.runBearingCalculation();
+      }
+    }
+
+    if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN && bearingNum !== null) {
+      window.bridgeSocket.send(JSON.stringify({ action: "set_azimuth", azimuth: bearingNum }));
+    }
+
+    window.dispatchEvent(new CustomEvent('ezshack:rotator', { detail: { grid, bearing: bearingNum } }));
+
+    if (typeof window.showToast === 'function') {
+      const bearingStr = bearingNum !== null ? `${bearingNum}°` : grid;
+      window.showToast(`🎯 Great Circle: Antenna aimed toward ${call} (${bearingStr})`);
+    }
   };
 
+  /* --- Direct Shack Hook: Stage in QuickLog --- */
   window.applyLookupToQuickLog = function(instanceId) {
     const card = document.getElementById(`lookupResultCard-${instanceId}`);
     if (!card) return;
+
     const call = card.getAttribute('data-target-call') || '';
     const grid = card.getAttribute('data-target-grid') || '';
-    window.broadcastShackSync('lookup', { call, grid });
+
+    const logInput = document.getElementById('logCall');
+    if (logInput && call) {
+      logInput.value = call;
+      logInput.dispatchEvent(new Event('input', { bubbles: true }));
+      logInput.focus();
+    }
+
+    const gcInput = document.getElementById('calcTargetGrid');
+    if (gcInput && grid) {
+      gcInput.value = grid;
+      if (typeof window.runBearingCalculation === 'function') {
+        window.runBearingCalculation();
+      }
+    }
+
+    if (typeof window.showToast === 'function') {
+      window.showToast(`📝 QuickLog: Staged ${call} ${grid ? '(' + grid + ')' : ''}`);
+    }
   };
 
+  /* --- Panel Cleanup & History Helpers --- */
   window.clearLookupPanel = function(instanceId) {
     const input = document.getElementById(`lookupCallInput-${instanceId}`);
     const card = document.getElementById(`lookupResultCard-${instanceId}`);
@@ -461,7 +523,7 @@
     if (card) {
       card.innerHTML = `
         <div class="text-center py-8 text-slate-500 text-xs">
-          Enter a callsign above to retrieve operator details, Maidenhead grid, and true Great Circle beam headings.
+          Enter a US or international callsign above to retrieve operator details, Maidenhead grid, and geodetic beam headings.
         </div>
       `;
     }
@@ -495,24 +557,7 @@
     const input = document.getElementById(`lookupCallInput-${instanceId}`);
     if (input) {
       input.value = call;
-      window.executeCallsignLookup(instanceId, null, true);
+      window.executeCallsignLookup(instanceId);
     }
   };
-
-  // Reactive listener from other panels
-  window.addEventListener('ezshack:sync', (e) => {
-    if (e.detail?.origin === 'lookup') return;
-    if (!window.appState.sync?.lookup) return;
-
-    const { call } = e.detail;
-    if (call) {
-      document.querySelectorAll('[id^="lookupCallInput-"]').forEach(inp => {
-        if (inp.value.toUpperCase() !== call.toUpperCase()) {
-          inp.value = call;
-          const instId = inp.id.replace('lookupCallInput-', '');
-          window.executeCallsignLookup(instId, null, false);
-        }
-      });
-    }
-  });
 })();
