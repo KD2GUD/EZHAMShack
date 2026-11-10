@@ -96,15 +96,59 @@ All station parameters—callsign, license class, Maidenhead grid locator, geogr
 * **Browser Persistence:** Configurations are safely stored locally in browser `localStorage` under `EZSHACK_STATE_V1` and never transmitted to external third-party servers.
 * **Backup & Migration:** Export and import your complete station configuration as a standalone JSON file directly through the **Backup & Reset** tab in Settings.
 
+---
+
 ## Quick Start Guide
 
-### Windows Setup (Automated)
+### Windows Automated Setup (Recommended)
 
-1. Clone or download the repository
-2. Unzip and copy the file to C:\EZShack
-3. CD C:\EZShack
-4. Run install.bat - this will launch a powershell installer that will install python and required libraries.
-5. Once installation is complete, connect your radio via serial or USB, turn it on and run launcher.bat
-6. Launcher will start the python daemons to detect your radio's COM port, baud rate and type, then launches the dashboard in a browser.
-7. Complete the initial configuration (CALL SIGN, Grid Square, etc.) and you're running.
+EZHAMShack provides a turnkey setup pipeline that configures your runtime, creates an isolated virtual environment, installs dependencies, formats station storage, and adds a desktop launcher.
 
+1. **Clone or Download the Repository:**
+   ```bash
+   git clone https://github.com/KD2GUD/EZHAMShack.git
+   cd EZHAMShack
+   ```
+   *(Alternatively, download the repository ZIP file and extract it to a directory on your machine, unzip and put the folder on your drive.).*
+
+2. **Run the Automated Installer:**
+   Double-click `install.bat` (or execute it from a command prompt).
+
+   The installer executes the following operations automatically:
+   * **Python Runtime Verification:** Scans for an existing Python installation. If missing, it automatically installs Python 3.12 in user scope via `winget`.
+   * **Dedicated Virtual Environment:** Builds a self-contained `.venv\` directory to isolate all dependencies.
+   * **CAT Dependency Installation:** Upgrades `pip` and installs required hardware communication modules (`pyserial`, `websockets`, and all packages in `requirements.txt`).
+   * **Station Directory & ADIF Initialization:** Creates the master local station directory at `C:\ezshack\` and initializes a valid ADIF 3.1.4 log file at `C:\ezshack\shack_log.adi`.
+
+3. **Launch the Station:**
+   * Double-click the **EZShack** desktop shortcut (or run `launcher.bat`).
+   * The launcher loads the page into your default browser.
+
+---
+
+## Contributing
+
+Contributions, bug reports, and new transceiver profiles are welcome. To contribute support for an unlisted transceiver:
+
+1. Fork the repository.
+2. Create a feature branch:
+   ```bash
+   git checkout -b feature/new-rig-profile
+   ```
+3. Implement a new profile class inheriting from the abstract `BaseRigProfile`.
+4. Verify that all CAT commands handle pacing and relay delays appropriately.
+5. Confirm that **no operator callsigns, coordinates, or station paths** are hardcoded into the profile or unit tests.
+6. Open a Pull Request with recorded serial trace logs or verification on physical hardware.
+
+---
+
+## License
+
+Distributed under the **GNU General Public License v3.0**. See the `LICENSE` file for full terms and conditions.
+
+**Developer:** Christopher J. Nichols (KD2GUD)  
+**Project Website:** [ezhamshack.com](https://ezhamshack.com)
+
+---
+
+*EZHAMShack is an independent open-source project and is not affiliated with Yaesu, Kenwood, Icom, or Elecraft.*
