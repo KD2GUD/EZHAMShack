@@ -146,7 +146,7 @@ Contributions, bug reports, and new transceiver profiles are welcome. To contrib
 
 Distributed under the **GNU General Public License v3.0**. See the `LICENSE` file for full terms and conditions.
 
-**Developer:** Christopher J. Nichols (KD2GUD)  
+**Developer:** Chris Nichols (KD2GUD)  
 **Project Website:** [ezhamshack.com](https://ezhamshack.com)
 
 ---
