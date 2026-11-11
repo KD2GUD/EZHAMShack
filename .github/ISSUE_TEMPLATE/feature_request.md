@@ -1,8 +1,10 @@
-## name: Feature Request
-about: Suggest an idea, new dashboard pane, or workflow enhancement
-title: '\[FEATURE\] '
+---
+name: Feature Request
+about: Suggest an idea, enhancement, or new capability for EZHAMShack
+title: '[FEATURE] '
 labels: enhancement
 assignees: ''
+---
 
 ## Is your feature request related to a problem?
 
