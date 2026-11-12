@@ -2,16 +2,15 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
-[![Status: Public Beta](https://img.shields.io/badge/status-Public%20Beta%20v1.0.0--Beta-orange.svg)]()
+[![Status: Public Beta](https://img.shields.io/badge/status-Public%20Beta%20v1.0.1--Beta-orange.svg)]()
 [![Website](https://img.shields.io/badge/website-ezhamshack.com-green.svg)](https://ezhamshack.com)
 
 **A modern, lightweight, cross-platform amateur radio station dashboard and hardware automation suite.**
 
-**Author:** Chris Nichols (Callsign: KD2GUD)  
 **Website:** [ezhamshack.com](https://ezhamshack.com)  
 **License:** GNU General Public License v3.0 (GPLv3)  
 **Tech Stack:** Python 3.10+ backend · Vanilla JavaScript · Tailwind CSS · HTML5 Canvas frontend  
-**Status:** Public Beta (v1.0.0-Beta)
+**Status:** Public Beta (v1.0.1-Beta)
 
 ---
 
@@ -140,7 +139,6 @@ Contributions, bug reports, and new transceiver profiles are welcome. To contrib
 
 Distributed under the **GNU General Public License v3.0**. See the `LICENSE` file for full terms and conditions.
 
-**Developer:** Chris Nichols (KD2GUD)  
 **Project Website:** [ezhamshack.com](https://ezhamshack.com)
 
 ---
