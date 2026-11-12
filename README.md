@@ -7,11 +7,10 @@
 
 **A modern, lightweight, cross-platform amateur radio station dashboard and hardware automation suite.**
 
-**Author:** Chris Nichols (Callsign: KD2GUD)  
 **Website:** [ezhamshack.com](https://ezhamshack.com)  
 **License:** GNU General Public License v3.0 (GPLv3)  
 **Tech Stack:** Python 3.10+ backend · Vanilla JavaScript · Tailwind CSS · HTML5 Canvas frontend  
-**Status:** Public Beta (v1.0.0-Beta)
+**Status:** Public Beta (v1.0.1-Beta)
 
 ---
 
@@ -140,7 +139,6 @@ Contributions, bug reports, and new transceiver profiles are welcome. To contrib
 
 Distributed under the **GNU General Public License v3.0**. See the `LICENSE` file for full terms and conditions.
 
-**Developer:** Chris Nichols (KD2GUD)  
 **Project Website:** [ezhamshack.com](https://ezhamshack.com)
 
 ---
