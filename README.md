@@ -2,6 +2,7 @@
 
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![Status: Public Beta](https://img.shields.io/badge/status-Public%20Beta%20v1.0.1--Beta-orange.svg)]()
 [![Website](https://img.shields.io/badge/website-ezhamshack.com-green.svg)](https://ezhamshack.com)
 
 **A modern, lightweight, cross-platform amateur radio station dashboard and hardware automation suite.**
