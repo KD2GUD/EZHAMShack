@@ -32,7 +32,7 @@ EZHAMShack consolidates station control, digital mode integration, satellite tra
 ## Core Architectural Capabilities
 
 - **Direct Hardware CAT Engine**  
-  Native asynchronous Python serial driver (`pyserial`) with hardware-specific command pacing and relay settling delays. Direct serial access eliminates intermediary layers like FLRIG.
+  Native asynchronous Python serial driver (`pyserial`) with hardware-specific command pacing and relay settling delays. Direct serial access eliminates intermediary layers like FLRIG. A USB, Serial, or USB to Serial cable to connect the radio to the computer is required.
 
 - **WebSocket Telemetry Bridge (`ws://127.0.0.1:8088`)**  
   High-speed bidirectional event bridge pushing live frequency, mode, S-meter, forward power, SWR, and rig state directly into the browser dashboard.
