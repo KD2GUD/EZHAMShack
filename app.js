@@ -132,6 +132,7 @@ window.appState = {
   },
   telemetry: {
     ptt: false,
+    rigSearching: true,
     smeterVal: 0,
     smeterStr: 'S0',
     pwrOut: 0.0,
@@ -745,17 +746,27 @@ window.updateMuteIcon = function() {
 window.connectBridgeWebSocket = function() {
   if (isShuttingDown) return;
   const wsUrl = `ws://127.0.0.1:${window.appState.radioPort || 8088}`;
+  let searchStartedAt = Date.now();
+  let searchToastShown = false;
+
   try {
     window.bridgeSocket = new WebSocket(wsUrl);
 
     window.bridgeSocket.onopen = () => {
-      window.updateRigLinkStatus(true, "CAT CONNECTED");
+      searchStartedAt = Date.now();
+      searchToastShown = false;
+      window.appState.telemetry.rigSearching = true;
+      window.updateVfoDisplay();
+      window.updateRigLinkStatus(false, "SCANNING...", true);
     };
 
     window.bridgeSocket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
         if (data.connected) {
+          window.appState.telemetry.rigSearching = false;
+          searchToastShown = false;
+
           if (data.xcvr) {
             window.appState.telemetry.xcvr = data.xcvr;
           }
@@ -802,7 +813,15 @@ window.connectBridgeWebSocket = function() {
             window.dispatchEvent(new CustomEvent('ezshack:subrx', { detail: data }));
           }
         } else {
-          window.updateRigLinkStatus(false, "RADIO OFFLINE");
+          window.appState.telemetry.rigSearching = true;
+          if (!window.appState.vfo.frequency) {
+            window.updateVfoDisplay();
+          }
+          window.updateRigLinkStatus(false, "SCANNING...", true);
+          if (!searchToastShown && Date.now() - searchStartedAt > 6000) {
+            searchToastShown = true;
+            window.showToast("Still scanning USB ports for an active transceiver...");
+          }
         }
       } catch (e) {
         console.error("[EZShack] Telemetry parse error:", e);
@@ -811,33 +830,44 @@ window.connectBridgeWebSocket = function() {
 
     window.bridgeSocket.onclose = () => {
       if (!isShuttingDown) {
+        window.appState.telemetry.rigSearching = false;
+        window.updateVfoDisplay();
         window.updateRigLinkStatus(false, "WS OFFLINE");
         setTimeout(window.connectBridgeWebSocket, 2000);
       }
     };
 
     window.bridgeSocket.onerror = () => {
-      if (!isShuttingDown) window.updateRigLinkStatus(false, "WS ERROR");
+      if (!isShuttingDown) {
+        window.appState.telemetry.rigSearching = false;
+        window.updateVfoDisplay();
+        window.updateRigLinkStatus(false, "WS ERROR");
+      }
     };
   } catch (err) {
     if (!isShuttingDown) {
+      window.appState.telemetry.rigSearching = false;
+      window.updateVfoDisplay();
       window.updateRigLinkStatus(false, "WS OFFLINE");
       setTimeout(window.connectBridgeWebSocket, 3000);
     }
   }
 };
 
-window.updateRigLinkStatus = function(online, label) {
+window.updateRigLinkStatus = function(online, label, scanning = false) {
   const ind = document.getElementById('rigStatusIndicator');
   const txt = document.getElementById('rigStatusText');
   if (!ind || !txt) return;
 
   if (online) {
     ind.className = 'w-2 h-2 rounded-full bg-emerald-400 shadow-[0_0_8px_#34d399]';
-    txt.className = 'text-[11px] font-mono text-emerald-400 font-bold';
+    txt.className = 'text-[10px] 2xl:text-[11px] font-mono text-emerald-400 font-bold';
+  } else if (scanning) {
+    ind.className = 'w-2 h-2 rounded-full bg-amber-400 shadow-[0_0_8px_#fbbf24] animate-pulse';
+    txt.className = 'text-[10px] 2xl:text-[11px] font-mono text-amber-400 font-bold';
   } else {
     ind.className = 'w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]';
-    txt.className = 'text-[11px] font-mono text-red-400 font-bold';
+    txt.className = 'text-[10px] 2xl:text-[11px] font-mono text-red-400 font-bold';
   }
   txt.innerText = label;
 };
@@ -1006,6 +1036,9 @@ window.buildDigitColumn = function(char, weight, colorClass) {
 
 window.renderVfoDigits = function(freqHz) {
   if (!freqHz) {
+    if (window.appState.telemetry.rigSearching) {
+      return `<span class="font-lcd text-base sm:text-lg font-bold text-amber-400 tracking-wider animate-pulse px-2">SCANNING USB...</span>`;
+    }
     return `<span class="font-lcd text-xl sm:text-2xl font-bold text-slate-600">---.---.---</span>`;
   }
 
