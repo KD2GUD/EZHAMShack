@@ -123,6 +123,7 @@ window.appState = {
     mode: '---',
     isSimulated: false
   },
+  bandFrequencies: {},
   solar: {
     sfi: 164,
     ssn: 138,
@@ -152,6 +153,7 @@ window.appState = {
   qsos: [],
   scratchpadText: 'Welcome to EZShack! Record skeds, QSL addresses, and net notes here.',
   nightMode: false,
+  uiZoom: 1.0,
   radioSoftware: 'flrig',
   radioPort: 8088
 };
@@ -160,6 +162,7 @@ let tuneLockUntil = 0;
 let pwrLockUntil = 0;
 let volLockUntil = 0;
 let isShuttingDown = false;
+let lastAutoSegmentKey = null;
 window.bridgeSocket = null;
 window.subReceiverWidget = null;
 
@@ -385,15 +388,76 @@ window.toggleBuiltInTuner = function() {
 };
 
 /* =====================================================================
+   VIEWPORT ZOOM, FULLSCREEN & STICKY HEADER SYNC
+   ===================================================================== */
+window.syncStickyHeaderOffset = function() {
+  const header = document.getElementById('mainHeader');
+  const strip = document.getElementById('telemetryStrip');
+  if (header && strip) {
+    strip.style.top = `${header.offsetHeight}px`;
+  }
+};
+
+window.applyUiZoom = function(zoomVal) {
+  const clamped = Math.max(0.75, Math.min(1.25, Math.round(zoomVal * 100) / 100));
+  window.appState.uiZoom = clamped;
+  document.documentElement.style.zoom = String(clamped);
+
+  const badge = document.getElementById('btnZoomReset');
+  if (badge) {
+    badge.innerText = `${Math.round(clamped * 100)}%`;
+  }
+  window.syncStickyHeaderOffset();
+};
+
+window.adjustUiZoom = function(delta) {
+  const current = window.appState.uiZoom || 1.0;
+  window.applyUiZoom(current + delta);
+  window.saveStateToStorage();
+};
+
+window.resetUiZoom = function() {
+  window.applyUiZoom(1.0);
+  window.saveStateToStorage();
+  window.showToast('Display zoom reset to 100%');
+};
+
+window.updateFullscreenButton = function() {
+  const btn = document.getElementById('btnFullscreen');
+  if (!btn) return;
+  const isFs = Boolean(document.fullscreenElement);
+  btn.classList.toggle('text-amber-400', isFs);
+  btn.classList.toggle('bg-shack-700', isFs);
+};
+
+window.toggleFullscreenMode = function() {
+  if (!document.fullscreenElement) {
+    document.documentElement.requestFullscreen().catch((err) => {
+      window.showToast(`Fullscreen unavailable: ${err.message || 'Press F11'}`);
+    });
+  } else {
+    document.exitFullscreen().catch(() => {});
+  }
+};
+
+/* =====================================================================
    INITIALIZATION & STORAGE PERSISTENCE
    ===================================================================== */
 window.addEventListener('DOMContentLoaded', () => {
   window.loadStateFromStorage();
+  window.applyUiZoom(window.appState.uiZoom || 1.0);
   window.startClocks();
   window.setupHeaderTelemetry();
   window.buildMeterSegments();
   window.updateRigControlAvailability();
+  window.syncStickyHeaderOffset();
   window.connectBridgeWebSocket();
+
+  window.addEventListener('resize', window.syncStickyHeaderOffset);
+  document.addEventListener('fullscreenchange', () => {
+    window.updateFullscreenButton();
+    window.syncStickyHeaderOffset();
+  });
 
   // Close dropdowns on outside click
   document.addEventListener('click', (e) => {
@@ -416,11 +480,13 @@ window.saveStateToStorage = function() {
   try {
     const stateToSave = {
       profile: window.appState.profile,
+      bandFrequencies: window.appState.bandFrequencies || {},
       solar: window.appState.solar,
       panes: window.appState.panes,
       qsos: window.appState.qsos,
       scratchpadText: window.appState.scratchpadText,
       nightMode: window.appState.nightMode,
+      uiZoom: window.appState.uiZoom || 1.0,
       radioSoftware: window.appState.radioSoftware,
       radioPort: window.appState.radioPort
     };
@@ -438,7 +504,8 @@ window.loadStateFromStorage = function() {
       window.appState = {
         ...window.appState,
         ...parsed,
-        profile: { ...DEFAULT_PROFILE, ...(parsed.profile || {}) }
+        profile: { ...DEFAULT_PROFILE, ...(parsed.profile || {}) },
+        bandFrequencies: { ...(parsed.bandFrequencies || {}) }
       };
       window.appState.vfo.frequency = null;
       window.appState.vfo.vfoA.frequency = null;
@@ -501,8 +568,6 @@ window.checkBandPrivilege = function(freqHz, mode, licClass) {
     else if (licClass === 'GENERAL') {
       allowedRanges.push({ min: 14025000, max: 14150000 });
       allowedRanges.push({ min: 14225000, max: 14350000 });
-    } else if (licClass === 'TECHNICIAN' || licClass === 'NOVICE') {
-      allowedRanges.push({ min: 21025000, max: 21200000 });
     }
   } else if (mhz >= 18.068 && mhz <= 18.168) {
     if (licClass === 'EXTRA' || licClass === 'GENERAL') allowedRanges.push({ min: 18068000, max: 18168000 });
@@ -624,7 +689,7 @@ window.updateMeterDisplay = function(data) {
   if (isPtt) {
     if (modeLabel) {
       modeLabel.innerText = "TX PWR";
-      modeLabel.className = "text-[10px] font-bold text-amber-400 w-14";
+      modeLabel.className = "text-[10px] font-bold text-amber-400 w-12 2xl:w-14";
     }
     const watts = data.pwr_out || 0;
     if (valLabel) {
@@ -635,7 +700,7 @@ window.updateMeterDisplay = function(data) {
   } else {
     if (modeLabel) {
       modeLabel.innerText = "RX S-MTR";
-      modeLabel.className = "text-[10px] font-bold text-cyan-400 w-14";
+      modeLabel.className = "text-[10px] font-bold text-cyan-400 w-12 2xl:w-14";
     }
     const active = window.resolveActiveMeterProfile();
     const meterResult = active.profile.calculate(data.smeter_val);
@@ -786,18 +851,21 @@ window.connectBridgeWebSocket = function() {
           window.updateRigControlAvailability();
 
           if (Date.now() > tuneLockUntil) {
+            const bandName = data.band || window.calculateBand(data.frequency);
             window.appState.vfo.frequency = data.frequency;
             window.appState.vfo.mode = data.mode || window.appState.vfo.mode;
-            window.appState.vfo.band = data.band || window.calculateBand(data.frequency);
+            window.appState.vfo.band = bandName;
             window.appState.vfo.isSimulated = false;
 
             const currentSlot = (window.appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
             window.appState.vfo[currentSlot] = {
               frequency: data.frequency,
               mode: window.appState.vfo.mode,
-              band: window.appState.vfo.band
+              band: bandName
             };
 
+            window.recordBandFrequency(bandName, data.frequency);
+            window.applySubBandAutoMode(data.frequency, false);
             window.updateVfoDisplay();
           }
 
@@ -890,6 +958,117 @@ window.calculateBand = function(freqHz) {
   return "--m";
 };
 
+window.recordBandFrequency = function(bandName, freqHz) {
+  if (!bandName || bandName === '--m' || !freqHz || freqHz <= 0) return;
+  if (!window.appState.bandFrequencies) {
+    window.appState.bandFrequencies = {};
+  }
+  window.appState.bandFrequencies[bandName] = freqHz;
+};
+
+/* =====================================================================
+   AUTOMATIC SUB-BAND SEGMENT & ONE-TIME MODE SWITCHING
+   ===================================================================== */
+window.getSubBandSegment = function(freqHz) {
+  const f = parseInt(freqHz, 10);
+  if (!f || isNaN(f)) return null;
+  const band = window.calculateBand(f);
+  if (band === '--m') return { key: `OOB:${Math.floor(f / 1000000)}`, band: '--m', mode: null };
+
+  let mode = null;
+
+  if (band === '160m') {
+    if (f < 1840000) mode = 'CW';
+    else if (f <= 1843000) mode = 'DATA-U';
+    else mode = 'LSB';
+  } else if (band === '80m') {
+    if (f < 3570000) mode = 'CW';
+    else if (f <= 3600000) mode = 'DATA-U';
+    else mode = 'LSB';
+  } else if (band === '60m') {
+    if (f >= 5356000 && f <= 5359000) mode = 'DATA-U';
+    else mode = 'USB';
+  } else if (band === '40m') {
+    if (f < 7045000) mode = 'CW';
+    else if (f <= 7125000) mode = 'DATA-U';
+    else mode = 'LSB';
+  } else if (band === '30m') {
+    if (f < 10130000) mode = 'CW';
+    else mode = 'DATA-U';
+  } else if (band === '20m') {
+    if (f < 14070000) mode = 'CW';
+    else if (f <= 14150000) mode = 'DATA-U';
+    else mode = 'USB';
+  } else if (band === '17m') {
+    if (f < 18095000) mode = 'CW';
+    else if (f <= 18110000) mode = 'DATA-U';
+    else mode = 'USB';
+  } else if (band === '15m') {
+    if (f < 21070000) mode = 'CW';
+    else if (f <= 21150000) mode = 'DATA-U';
+    else mode = 'USB';
+  } else if (band === '12m') {
+    if (f < 24910000) mode = 'CW';
+    else if (f <= 24930000) mode = 'DATA-U';
+    else mode = 'USB';
+  } else if (band === '10m') {
+    if (f < 28070000) mode = 'CW';
+    else if (f <= 28300000) mode = 'DATA-U';
+    else if (f < 29000000) mode = 'USB';
+    else mode = 'FM';
+  } else if (band === '6m') {
+    if (f < 50100000) mode = 'CW';
+    else if (f < 50300000) mode = 'USB';
+    else if (f <= 50400000) mode = 'DATA-U';
+    else if (f < 52000000) mode = 'USB';
+    else mode = 'FM';
+  } else if (band === '2m') {
+    if (f < 144170000) mode = 'CW';
+    else if (f <= 144185000) mode = 'DATA-U';
+    else if (f < 144300000) mode = 'USB';
+    else mode = 'FM';
+  } else if (band === '70cm') {
+    if (f < 432060000) mode = 'CW';
+    else if (f <= 432075000) mode = 'DATA-U';
+    else if (f < 432300000) mode = 'USB';
+    else mode = 'FM';
+  }
+
+  return { key: `${band}:${mode || 'NONE'}`, band, mode };
+};
+
+window.applySubBandAutoMode = function(freqHz, allowSwitch = true) {
+  const seg = window.getSubBandSegment(freqHz);
+  if (!seg) return null;
+
+  // On initial radio connect, seed the current segment without overriding the rig's active mode
+  if (lastAutoSegmentKey === null) {
+    lastAutoSegmentKey = seg.key;
+    return null;
+  }
+
+  // Only fire once when crossing a sub-band segment boundary
+  if (seg.key === lastAutoSegmentKey) {
+    return null;
+  }
+
+  lastAutoSegmentKey = seg.key;
+  if (!allowSwitch || !seg.mode) return null;
+
+  if ((window.appState.vfo.mode || '').toUpperCase() === seg.mode) {
+    return null;
+  }
+
+  window.appState.vfo.mode = seg.mode;
+  const activeSlot = (window.appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
+  window.appState.vfo[activeSlot].mode = seg.mode;
+
+  if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
+    window.bridgeSocket.send(JSON.stringify({ action: "set_mode", mode: seg.mode }));
+  }
+  return seg.mode;
+};
+
 window.sendFreqToBridge = function(freqHz) {
   if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
     window.bridgeSocket.send(JSON.stringify({ action: "set_freq", freq: freqHz }));
@@ -925,7 +1104,7 @@ window.setSubMute = function(muted) {
 };
 
 /* =====================================================================
-   CLEAN POWER-DOWN SEQUENCING
+   CLEAN POWER-DOWN SEQUENCING (Shuts down Daemon & Closes Tab)
    ===================================================================== */
 window.openPowerModal = function() {
   document.getElementById('powerModal')?.classList.remove('hidden');
@@ -934,11 +1113,25 @@ window.openPowerModal = function() {
 window.executeStationShutdown = function() {
   window.closeModal('powerModal');
   isShuttingDown = true;
+  window.saveStateToStorage();
+
   if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
     window.bridgeSocket.send(JSON.stringify({ action: "shutdown" }));
-    window.bridgeSocket.close();
   }
+
   document.getElementById('haltedOverlay')?.classList.remove('hidden');
+
+  setTimeout(() => {
+    try {
+      if (window.bridgeSocket) window.bridgeSocket.close();
+    } catch (e) {}
+    window.close();
+    // Secondary fallback for browsers requiring self-target handle
+    try {
+      window.open('', '_self');
+      window.close();
+    } catch (e) {}
+  }, 350);
 };
 
 /* =====================================================================
@@ -963,6 +1156,11 @@ window.setVfo = function(vfoId) {
   window.appState.vfo.mode = target.mode;
   window.appState.vfo.band = target.band || window.calculateBand(target.frequency || 14074000);
 
+  if (target.frequency) {
+    const seg = window.getSubBandSegment(target.frequency);
+    if (seg) lastAutoSegmentKey = seg.key;
+  }
+
   window.updateVfoDisplay();
   window.saveStateToStorage();
 
@@ -980,11 +1178,11 @@ window.updateVfoButtons = function() {
   if (!btnA || !btnB) return;
   const isA = (window.appState.vfo.active || 'A') === 'A';
   if (isA) {
-    btnA.className = "px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition font-bold";
-    btnB.className = "px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition border border-transparent font-normal";
+    btnA.className = "px-1.5 2xl:px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition font-bold";
+    btnB.className = "px-1.5 2xl:px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition border border-transparent font-normal";
   } else {
-    btnB.className = "px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition font-bold";
-    btnA.className = "px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition border border-transparent font-normal";
+    btnB.className = "px-1.5 2xl:px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition font-bold";
+    btnA.className = "px-1.5 2xl:px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition border border-transparent font-normal";
   }
 };
 
@@ -998,19 +1196,27 @@ window.tuneDigit = function(weight, direction) {
   if (!window.appState.vfo.frequency) return;
   const delta = weight * direction;
   let newFreq = Math.max(100000, Math.min(450000000, window.appState.vfo.frequency + delta));
+  const bandName = window.calculateBand(newFreq);
 
   window.appState.vfo.frequency = newFreq;
-  window.appState.vfo.band = window.calculateBand(newFreq);
+  window.appState.vfo.band = bandName;
 
   const activeSlot = (window.appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
   window.appState.vfo[activeSlot].frequency = newFreq;
-  window.appState.vfo[activeSlot].band = window.appState.vfo.band;
+  window.appState.vfo[activeSlot].band = bandName;
+
+  window.recordBandFrequency(bandName, newFreq);
+  const autoSwitchedMode = window.applySubBandAutoMode(newFreq, true);
 
   tuneLockUntil = Date.now() + 800;
 
   window.updateVfoDisplay();
   window.saveStateToStorage();
   window.sendFreqToBridge(newFreq);
+
+  if (autoSwitchedMode) {
+    window.showToast(`Auto Mode: ${autoSwitchedMode} (${bandName})`);
+  }
 };
 
 window.handleDigitWheel = function(event, weight) {
@@ -1099,13 +1305,20 @@ window.toggleModeDropdown = function(e) {
 };
 
 window.selectBand = function(bandName, defaultFreq) {
+  const savedFreq = window.appState.bandFrequencies?.[bandName];
+  const targetFreq = (savedFreq && savedFreq > 0) ? savedFreq : defaultFreq;
+  const usedSaved = Boolean(savedFreq && savedFreq > 0);
+
   window.appState.vfo.band = bandName;
-  if (defaultFreq) {
-    window.appState.vfo.frequency = defaultFreq;
+  if (targetFreq) {
+    window.appState.vfo.frequency = targetFreq;
+    window.recordBandFrequency(bandName, targetFreq);
   }
   const activeSlot = (window.appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
   window.appState.vfo[activeSlot].band = bandName;
   window.appState.vfo[activeSlot].frequency = window.appState.vfo.frequency;
+
+  const autoSwitchedMode = targetFreq ? window.applySubBandAutoMode(targetFreq, true) : null;
 
   tuneLockUntil = Date.now() + 800;
 
@@ -1113,7 +1326,11 @@ window.selectBand = function(bandName, defaultFreq) {
   window.saveStateToStorage();
   document.getElementById('bandDropdown')?.classList.add('hidden');
   if (window.appState.vfo.frequency) window.sendFreqToBridge(window.appState.vfo.frequency);
-  window.showToast(`Selected ${bandName} Band (${(window.appState.vfo.frequency / 1000000).toFixed(3)} MHz)`);
+
+  const mhzLabel = (window.appState.vfo.frequency / 1000000).toFixed(3);
+  const modeNote = autoSwitchedMode ? ` [${autoSwitchedMode}]` : '';
+  const memNote = usedSaved ? ' (Last Used)' : '';
+  window.showToast(`${bandName}: ${mhzLabel} MHz${modeNote}${memNote}`);
 };
 
 window.selectMode = function(modeName) {
@@ -1190,14 +1407,14 @@ window.setupHeaderTelemetry = function() {
   const kBadge = document.getElementById('hdrKIndex');
   if (kBadge) {
     if (kVal <= 2) {
-      kBadge.className = 'px-1.5 py-0.2 rounded text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
-      kBadge.innerText = `${kVal} Quiet`;
+      kBadge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800';
+      kBadge.innerText = `K${kVal} Quiet`;
     } else if (kVal <= 4) {
-      kBadge.className = 'px-1.5 py-0.2 rounded text-[11px] font-bold bg-amber-950 text-amber-400 border border-amber-800';
-      kBadge.innerText = `${kVal} Unsettled`;
+      kBadge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-400 border border-amber-800';
+      kBadge.innerText = `K${kVal} Unsettled`;
     } else {
-      kBadge.className = 'px-1.5 py-0.2 rounded text-[11px] font-bold bg-red-950 text-red-400 border border-red-800';
-      kBadge.innerText = `${kVal} Storm`;
+      kBadge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-red-950 text-red-400 border border-red-800';
+      kBadge.innerText = `K${kVal} Storm`;
     }
   }
 
@@ -1347,8 +1564,10 @@ window.importConfigJson = function(e) {
       window.appState = {
         ...window.appState,
         ...parsed,
-        profile: { ...DEFAULT_PROFILE, ...(parsed.profile || {}) }
+        profile: { ...DEFAULT_PROFILE, ...(parsed.profile || {}) },
+        bandFrequencies: { ...(parsed.bandFrequencies || {}) }
       };
+      window.applyUiZoom(window.appState.uiZoom || 1.0);
       window.saveStateToStorage();
       window.setupHeaderTelemetry();
       if (typeof window.renderPanes === 'function') window.renderPanes();
@@ -1365,6 +1584,8 @@ window.resetFactoryDefaults = function() {
   localStorage.removeItem('EZSHACK_STATE_V1');
   localStorage.removeItem('RIGDECK_V2_STATE');
   window.appState.panes = [];
+  window.appState.bandFrequencies = {};
+  window.applyUiZoom(1.0);
   if (typeof window.loadDefaultPreset === 'function') window.loadDefaultPreset();
   window.setupHeaderTelemetry();
   window.closeModal('settingsModal');
