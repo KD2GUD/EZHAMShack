@@ -175,6 +175,95 @@ const DEG_TO_RAD = Math.PI / 180.0;
 const RAD_TO_DEG = 180.0 / Math.PI;
 
 /* =====================================================================
+   TRANSCEIVER BAND-CAPABILITY GATING (HF-Only vs VHF/UHF Rigs)
+   ===================================================================== */
+function freqToSatBandName(freqHz) {
+  const f = parseInt(freqHz, 10);
+  if (!f || isNaN(f) || f <= 0) return null;
+  const mhz = f / 1000000.0;
+  if (mhz >= 1.8 && mhz <= 2.0) return '160m';
+  if (mhz >= 3.5 && mhz <= 4.0) return '80m';
+  if (mhz >= 5.33 && mhz <= 5.41) return '60m';
+  if (mhz >= 7.0 && mhz <= 7.3) return '40m';
+  if (mhz >= 10.1 && mhz <= 10.15) return '30m';
+  if (mhz >= 14.0 && mhz <= 14.35) return '20m';
+  if (mhz >= 18.068 && mhz <= 18.168) return '17m';
+  if (mhz >= 21.0 && mhz <= 21.45) return '15m';
+  if (mhz >= 24.89 && mhz <= 24.99) return '12m';
+  if (mhz >= 28.0 && mhz <= 29.7) return '10m';
+  if (mhz >= 50.0 && mhz <= 54.0) return '6m';
+  if (mhz >= 70.0 && mhz <= 70.5) return '4m';
+  if (mhz >= 144.0 && mhz <= 148.0) return '2m';
+  if (mhz >= 222.0 && mhz <= 225.0) return '1.25m';
+  if (mhz >= 420.0 && mhz <= 450.0) return '70cm';
+  if (mhz >= 902.0 && mhz <= 928.0) return '33cm';
+  if (mhz >= 1240.0 && mhz <= 1300.0) return '23cm';
+  return `${Math.round(mhz)}MHz`;
+}
+
+function resolveConnectedRigBands() {
+  if (typeof window.getRigSupportedBands === 'function') {
+    return window.getRigSupportedBands();
+  }
+
+  const telemetry = (window.appState && window.appState.telemetry) ? window.appState.telemetry : {};
+  if (Array.isArray(telemetry.supported_bands) && telemetry.supported_bands.length > 0) {
+    return telemetry.supported_bands;
+  }
+
+  const rigId = (telemetry.rigId || '').toLowerCase();
+  const xcvr = (telemetry.xcvr || '').toLowerCase();
+  const combined = `${rigId} ${xcvr}`.trim();
+
+  if (!combined || combined === 'radio') return null;
+
+  const HF_ONLY = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'];
+  const HF_6M = [...HF_ONLY, '6m'];
+  const ALL_BAND = [...HF_6M, '2m', '70cm'];
+  const VHF_UHF_SHF = ['2m', '70cm', '23cm'];
+
+  if (/ic-?9700/.test(combined)) return VHF_UHF_SHF;
+  if (/ic-?718/.test(combined)) return HF_ONLY;
+
+  if (/ic-?(7300|7610|7600|7410|7200|756|7700|7800|7851)/.test(combined)) return HF_6M;
+  if (/ftdx-?(10|101|3000|5000|1200)|ft-?(891|450|950|920|1000)/.test(combined)) return HF_6M;
+  if (/ts-?(590|890|990|480|570|870)/.test(combined)) return HF_6M;
+  if (/\b(kx2|kx3|k3|k4)\b/.test(combined)) return HF_6M;
+
+  if (/ft-?(991|857|897|817|818|100)|ic-?(705|7100|7000|706|9100)|ts-?2000/.test(combined)) {
+    return ALL_BAND;
+  }
+
+  return null;
+}
+
+function checkTransponderBandSupport(transponder) {
+  const supportedBands = resolveConnectedRigBands();
+  if (!Array.isArray(supportedBands) || supportedBands.length === 0) {
+    return { supported: true, missingBands: [], reason: '' };
+  }
+
+  const required = [];
+  const dlBand = freqToSatBandName(transponder.downlink);
+  const ulBand = freqToSatBandName(transponder.uplink);
+  if (dlBand && !required.includes(dlBand)) required.push(dlBand);
+  if (ulBand && !required.includes(ulBand)) required.push(ulBand);
+
+  const missingBands = required.filter(b => !supportedBands.includes(b));
+  if (missingBands.length > 0) {
+    const telemetry = (window.appState && window.appState.telemetry) ? window.appState.telemetry : {};
+    const rigLabel = telemetry.xcvr || telemetry.rigId || 'Connected transceiver';
+    return {
+      supported: false,
+      missingBands,
+      reason: `${rigLabel} does not support ${missingBands.join(' / ')} band operation`
+    };
+  }
+
+  return { supported: true, missingBands: [], reason: '' };
+}
+
+/* =====================================================================
    SYNTHESIZED WEB AUDIO ALERT ENGINE
    ===================================================================== */
 function getSatAudioContext() {
@@ -412,7 +501,6 @@ function scanAndRankAllSatellites(obsCoords, forceAutoSelect = false) {
   window.renderSatelliteDropdown();
 }
 
-// DROPDOWN RENDERER: Removed [V/U] from options
 window.renderSatelliteDropdown = function() {
   const dropdown = document.getElementById('satSelectDropdown');
   if (!dropdown) return;
@@ -558,7 +646,10 @@ const satWidgetDefinition = {
       <!-- Transponders List with Doppler Controls -->
       <div class="bg-shack-950 border border-shack-border rounded overflow-hidden">
         <div class="px-2.5 py-1.5 bg-shack-850 border-b border-shack-border flex flex-wrap items-center justify-between gap-2 text-[10px]">
-          <span class="font-bold text-slate-300">TRANSPONDERS & FREQUENCIES</span>
+          <div class="flex items-center gap-2">
+            <span class="font-bold text-slate-300">TRANSPONDERS & FREQUENCIES</span>
+            <span id="satBandGateBadge" class="hidden px-1.5 py-0.5 rounded bg-amber-950/70 border border-amber-700/70 text-amber-300 text-[9px] font-bold"></span>
+          </div>
           <div class="flex items-center gap-2">
             <button onclick="window.toggleForceDopplerTest()" id="btnForceDoppler" class="px-2 py-0.5 rounded border border-amber-800/80 bg-amber-950/40 text-amber-400 hover:bg-amber-900/60 font-bold transition" title="Overrides horizon gate to verify VFO stepping on the bench">
               ⚡ Bench Test Mode: OFF
@@ -634,6 +725,14 @@ window.tuneRigToTransponder = function(transponderIdx) {
   if (!sat || !sat.transponders[transponderIdx]) return;
 
   const t = sat.transponders[transponderIdx];
+  const bandCheck = checkTransponderBandSupport(t);
+  if (!bandCheck.supported) {
+    if (typeof window.showToast === 'function') {
+      window.showToast(bandCheck.reason);
+    }
+    return;
+  }
+
   const isLinear = ['USB', 'LSB', 'CW', 'CW-U', 'CW-L'].includes(t.mode);
 
   isTuningInProgress = true;
@@ -955,17 +1054,61 @@ window.updateTransponderDisplay = function() {
   const sat = SATELLITE_CATALOG.find(s => s.id === selectedSatId);
   if (!sat) return;
 
+  const missingSet = new Set();
+  sat.transponders.forEach(t => {
+    const chk = checkTransponderBandSupport(t);
+    if (!chk.supported) {
+      chk.missingBands.forEach(b => missingSet.add(b));
+    }
+  });
+
+  const gateBadge = document.getElementById('satBandGateBadge');
+  if (gateBadge) {
+    if (missingSet.size > 0) {
+      const telemetry = (window.appState && window.appState.telemetry) ? window.appState.telemetry : {};
+      const rigLabel = telemetry.xcvr || telemetry.rigId || 'Active Rig';
+      gateBadge.innerText = `⊘ ${rigLabel}: No ${Array.from(missingSet).join('/')}`;
+      gateBadge.title = `${rigLabel} lacks ${Array.from(missingSet).join(' / ')} band coverage — Tune & Sync disabled`;
+      gateBadge.classList.remove('hidden');
+    } else {
+      gateBadge.classList.add('hidden');
+    }
+  }
+
   container.innerHTML = sat.transponders.map((t, idx) => {
     const isLinear = ['USB', 'LSB', 'CW', 'CW-U', 'CW-L'].includes(t.mode);
     const isCurrentlyTracked = activeTrackedTransponder && 
                                activeTrackedTransponder.satId === sat.id && 
                                activeTrackedTransponder.idx === idx;
+    const bandCheck = checkTransponderBandSupport(t);
 
     const ulMhz = t.uplink > 0 ? (t.uplink / 1000000.0).toFixed(4) : '---';
     const specificDop = window.calculateSpecificDoppler(t.downlink);
     const dopCorrectedHz = t.downlink + specificDop;
     const correctedDlMhz = (dopCorrectedHz / 1000000.0).toFixed(4);
     const toneHz = extractToneHz(t.tone);
+
+    let actionBtnHtml = '';
+    if (isCurrentlyTracked) {
+      actionBtnHtml = `
+        <button onclick="window.stopTrackingTransponder()" class="px-2 py-1 bg-red-950 hover:bg-red-900 border border-red-800 text-red-300 font-bold rounded text-[10px] transition" title="Disengage Split and disconnect live CAT tracking">
+          ⏹ Disengage
+        </button>
+      `;
+    } else if (!bandCheck.supported) {
+      const safeReason = bandCheck.reason.replace(/"/g, '&quot;');
+      actionBtnHtml = `
+        <button type="button" disabled class="px-2 py-1 bg-shack-900 border border-shack-800 text-slate-500 font-bold rounded text-[10px] opacity-35 cursor-not-allowed select-none" title="${safeReason}">
+          📻 Tune & Sync
+        </button>
+      `;
+    } else {
+      actionBtnHtml = `
+        <button onclick="window.tuneRigToTransponder(${idx})" class="px-2 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 font-bold rounded text-[10px] transition" title="Tune VFO A/B, arm Split, and lock Doppler">
+          📻 Tune & Sync
+        </button>
+      `;
+    }
 
     return `
       <div class="p-1.5 flex items-center justify-between text-[11px] ${isCurrentlyTracked ? 'bg-cyan-950/40 border-l-2 border-cyan-400' : 'hover:bg-shack-900/60'}">
@@ -983,15 +1126,7 @@ window.updateTransponderDisplay = function() {
         </div>
 
         <div class="flex items-center gap-1 shrink-0">
-          ${isCurrentlyTracked ? `
-            <button onclick="window.stopTrackingTransponder()" class="px-2 py-1 bg-red-950 hover:bg-red-900 border border-red-800 text-red-300 font-bold rounded text-[10px] transition" title="Disengage Split and disconnect live CAT tracking">
-              ⏹ Disengage
-            </button>
-          ` : `
-            <button onclick="window.tuneRigToTransponder(${idx})" class="px-2 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 font-bold rounded text-[10px] transition" title="Tune VFO A/B, arm Split, and lock Doppler">
-              📻 Tune & Sync
-            </button>
-          `}
+          ${actionBtnHtml}
         </div>
       </div>
     `;

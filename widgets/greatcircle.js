@@ -1,6 +1,6 @@
 /* =====================================================================
    EZSHACK WIDGET: Bearing & Great Circle Calculator (widgets/greatcircle.js)
-   Antenna beam headings, true azimuth, distance, and Maidenhead math
+   Antenna beam headings, true azimuth, distance, Maidenhead & Zone math
    ===================================================================== */
 
 (function() {
@@ -100,7 +100,7 @@
 })();
 
 /* =====================================================================
-   BEARING & GREAT CIRCLE MATH HELPERS
+   BEARING, MAIDENHEAD & CQ / ITU ZONE MATH HELPERS
    ===================================================================== */
 window.maidenheadToLatLon = function(grid) {
   if (!grid || typeof grid !== 'string') return null;
@@ -129,6 +129,107 @@ window.maidenheadToLatLon = function(grid) {
   lon += 1;
   lat += 0.5;
   return { lat, lon };
+};
+
+window.latLonToMaidenhead = function(lat, lon) {
+  const latNum = parseFloat(lat);
+  const lonNum = parseFloat(lon);
+  if (isNaN(latNum) || isNaN(lonNum) || latNum < -90 || latNum > 90 || lonNum < -180 || lonNum > 180) {
+    return null;
+  }
+
+  const adjLon = lonNum + 180.0;
+  const adjLat = latNum + 90.0;
+
+  const fieldLon = Math.min(17, Math.max(0, Math.floor(adjLon / 20)));
+  const fieldLat = Math.min(17, Math.max(0, Math.floor(adjLat / 10)));
+
+  const sqLon = Math.min(9, Math.max(0, Math.floor((adjLon % 20) / 2)));
+  const sqLat = Math.min(9, Math.max(0, Math.floor(adjLat % 10)));
+
+  const subLon = Math.min(23, Math.max(0, Math.floor(((adjLon % 2) / 2) * 24)));
+  const subLat = Math.min(23, Math.max(0, Math.floor((adjLat % 1) * 24)));
+
+  const f1 = String.fromCharCode(65 + fieldLon);
+  const f2 = String.fromCharCode(65 + fieldLat);
+  const s1 = String.fromCharCode(97 + subLon);
+  const s2 = String.fromCharCode(97 + subLat);
+
+  return `${f1}${f2}${sqLon}${sqLat}${s1}${s2}`;
+};
+
+window.estimateZonesFromLocation = function(opts) {
+  const state = (opts && opts.state ? String(opts.state) : '').trim().toUpperCase();
+  const country = (opts && opts.country ? String(opts.country) : '').trim().toUpperCase();
+  const lat = opts && opts.lat !== undefined ? parseFloat(opts.lat) : NaN;
+  const lon = opts && opts.lon !== undefined ? parseFloat(opts.lon) : NaN;
+
+  const US_STATE_ZONES = {
+    // CQ Zone 5, ITU Zone 8 (US East)
+    CT: { cqz: '5', ituz: '8' }, DC: { cqz: '5', ituz: '8' }, DE: { cqz: '5', ituz: '8' },
+    FL: { cqz: '5', ituz: '8' }, GA: { cqz: '5', ituz: '8' }, MA: { cqz: '5', ituz: '8' },
+    MD: { cqz: '5', ituz: '8' }, ME: { cqz: '5', ituz: '8' }, NC: { cqz: '5', ituz: '8' },
+    NH: { cqz: '5', ituz: '8' }, NJ: { cqz: '5', ituz: '8' }, NY: { cqz: '5', ituz: '8' },
+    PA: { cqz: '5', ituz: '8' }, RI: { cqz: '5', ituz: '8' }, SC: { cqz: '5', ituz: '8' },
+    VA: { cqz: '5', ituz: '8' }, VT: { cqz: '5', ituz: '8' }, WV: { cqz: '5', ituz: '8' },
+    // CQ Zone 4, ITU Zone 8 (Great Lakes / East-Central)
+    AL: { cqz: '4', ituz: '8' }, IL: { cqz: '4', ituz: '8' }, IN: { cqz: '4', ituz: '8' },
+    KY: { cqz: '4', ituz: '8' }, MI: { cqz: '4', ituz: '8' }, MS: { cqz: '4', ituz: '8' },
+    OH: { cqz: '4', ituz: '8' }, TN: { cqz: '4', ituz: '8' }, WI: { cqz: '4', ituz: '8' },
+    // CQ Zone 4, ITU Zone 7 (Plains & Mountain Central)
+    AR: { cqz: '4', ituz: '7' }, CO: { cqz: '4', ituz: '7' }, IA: { cqz: '4', ituz: '7' },
+    KS: { cqz: '4', ituz: '7' }, LA: { cqz: '4', ituz: '7' }, MN: { cqz: '4', ituz: '7' },
+    MO: { cqz: '4', ituz: '7' }, MT: { cqz: '4', ituz: '7' }, ND: { cqz: '4', ituz: '7' },
+    NE: { cqz: '4', ituz: '7' }, NM: { cqz: '4', ituz: '7' }, OK: { cqz: '4', ituz: '7' },
+    SD: { cqz: '4', ituz: '7' }, TX: { cqz: '4', ituz: '7' }, WY: { cqz: '4', ituz: '7' },
+    // CQ Zone 3, ITU Zone 7 (Mountain West)
+    AZ: { cqz: '3', ituz: '7' }, ID: { cqz: '3', ituz: '7' }, UT: { cqz: '3', ituz: '7' },
+    // CQ Zone 3, ITU Zone 6 (Pacific Coast)
+    CA: { cqz: '3', ituz: '6' }, NV: { cqz: '3', ituz: '6' }, OR: { cqz: '3', ituz: '6' },
+    WA: { cqz: '3', ituz: '6' },
+    // Non-contiguous US
+    AK: { cqz: '1', ituz: '1' },
+    HI: { cqz: '31', ituz: '61' },
+    PR: { cqz: '8', ituz: '11' },
+    VI: { cqz: '8', ituz: '11' }
+  };
+
+  if (state && US_STATE_ZONES[state] && (!country || country === 'USA' || country === 'US' || country === 'UNITED STATES')) {
+    return US_STATE_ZONES[state];
+  }
+
+  // Geographic fallback from Lat/Lon when state is unavailable
+  if (!isNaN(lat) && !isNaN(lon) && (lat !== 0 || lon !== 0)) {
+    // North America bounds
+    if (lat >= 24 && lat <= 72 && lon >= -170 && lon <= -52) {
+      if (lat >= 54 && lon <= -130) return { cqz: '1', ituz: '1' };
+      let cqz = '4';
+      if (lon <= -114) cqz = '3';
+      else if (lon >= -85) cqz = '5';
+      let ituz = '7';
+      if (lon <= -118) ituz = '6';
+      else if (lon >= -90) ituz = '8';
+      return { cqz, ituz };
+    }
+    // Hawaii
+    if (lat >= 18 && lat <= 23 && lon >= -162 && lon <= -154) {
+      return { cqz: '31', ituz: '61' };
+    }
+    // Western / Central Europe
+    if (lat >= 35 && lat <= 71 && lon >= -11 && lon <= 30) {
+      return { cqz: lon < 15 ? '14' : '15', ituz: lon < 12 ? '27' : '28' };
+    }
+    // Japan / East Asia
+    if (lat >= 24 && lat <= 46 && lon >= 122 && lon <= 146) {
+      return { cqz: '25', ituz: '45' };
+    }
+    // Australia
+    if (lat >= -44 && lat <= -10 && lon >= 112 && lon <= 154) {
+      return { cqz: lon < 138 ? '29' : '30', ituz: lon < 138 ? '58' : '59' };
+    }
+  }
+
+  return { cqz: '', ituz: '' };
 };
 
 window.calculateGreatCircle = function(lat1, lon1, lat2, lon2) {

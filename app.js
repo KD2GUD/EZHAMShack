@@ -14,6 +14,7 @@ const DEFAULT_PROFILE = {
   state: '',
   country: 'USA',
   cqz: '',
+  ituz: '',
   power: '100',
   rigName: '',
   antenna: ''
@@ -147,6 +148,7 @@ window.appState = {
     isMuted: false,
     preMuteVol: 50,
     capabilities: [],
+    supported_bands: [],
     subRx: null
   },
   panes: [],
@@ -200,6 +202,32 @@ window.resolveActiveMeterProfile = function() {
 window.calculateSmeter = function(val) {
   const active = window.resolveActiveMeterProfile();
   return active.profile.calculate(val);
+};
+
+window.getRigSupportedBands = function() {
+  const tel = window.appState.telemetry || {};
+  if (Array.isArray(tel.supported_bands) && tel.supported_bands.length > 0) {
+    return tel.supported_bands;
+  }
+
+  const combined = `${tel.rigId || ''} ${tel.xcvr || ''}`.toLowerCase().trim();
+  if (!combined || combined === 'radio') return null;
+
+  const HF_ONLY = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'];
+  const HF_6M = [...HF_ONLY, '6m'];
+  const ALL_BAND = [...HF_6M, '2m', '70cm'];
+  const VHF_UHF_SHF = ['2m', '70cm', '23cm'];
+
+  if (/ic-?9700/.test(combined)) return VHF_UHF_SHF;
+  if (/ic-?718/.test(combined)) return HF_ONLY;
+  if (/ic-?(7300|7610|7600|7410|7200|756|7700|7800|7851)/.test(combined)) return HF_6M;
+  if (/ftdx-?(10|101|3000|5000|1200)|ft-?(891|450|950|920|1000)/.test(combined)) return HF_6M;
+  if (/ts-?(590|890|990|480|570|870)/.test(combined)) return HF_6M;
+  if (/\b(kx2|kx3|k3|k4)\b/.test(combined)) return HF_6M;
+  if (/ft-?(991|857|897|817|818|100)|ic-?(705|7100|7000|706|9100)|ts-?2000/.test(combined)) {
+    return ALL_BAND;
+  }
+  return null;
 };
 
 window.isRigCapabilitySupported = function(capName) {
@@ -358,6 +386,11 @@ window.updateRigControlAvailability = function() {
     } else if (pDisp.innerText === 'MENU') {
       pDisp.innerText = `${window.appState.telemetry.powerTarget ?? 100}W`;
     }
+  }
+
+  // 4. Refresh Satellite Tracker transponder band gating if mounted
+  if (typeof window.updateTransponderDisplay === 'function') {
+    window.updateTransponderDisplay();
   }
 };
 
@@ -625,37 +658,170 @@ window.checkBandPrivilege = function(freqHz, mode, licClass) {
   return { status: 'OK' };
 };
 
-/* Automated FCC License Discovery */
-window.runLicenseLookup = async function(notify = true) {
-  const call = (document.getElementById('cfgCallsign')?.value || window.appState.profile.callsign || '').trim().toUpperCase();
-  if (!call || call === 'N0CALL') return;
+/* =====================================================================
+   EXPANDED LICENSE, MAIDENHEAD GRID & ZONE AUTO-DISCOVERY
+   ===================================================================== */
+function parseCityStateFromAddress(addrObj) {
+  if (!addrObj) return { city: '', state: '' };
+  const line2 = (addrObj.line2 || '').trim();
+  // Callook line2 format: "WATERTOWN, NY 13601"
+  const m = line2.match(/^([^,]+),\s*([A-Z]{2})\b/i);
+  if (m) {
+    return { city: m[1].trim(), state: m[2].trim().toUpperCase() };
+  }
+  return { city: '', state: '' };
+}
 
+window.runLicenseLookup = async function(notify = true) {
+  const callInput = document.getElementById('cfgCallsign');
+  const call = (callInput ? callInput.value : window.appState.profile.callsign || '').trim().toUpperCase();
+  if (!call || call === 'N0CALL') {
+    if (notify) window.showToast('Enter a valid call sign first.');
+    return;
+  }
+
+  if (notify) window.showToast(`Looking up ${call}...`);
+
+  let mappedClass = window.appState.profile.licenseClass || 'TECHNICIAN';
+  let foundGrid = '';
+  let foundCity = '';
+  let foundState = '';
+  let foundCountry = '';
+  let foundLat = NaN;
+  let foundLon = NaN;
+  let foundCqz = '';
+  let foundItuz = '';
+  let foundAny = false;
+
+  // 1. Primary FCC / North America lookup via Callook
   try {
-    const resp = await fetch(`https://callook.info/${call}/json`);
+    const resp = await fetch(`https://callook.info/${encodeURIComponent(call)}/json`);
     if (resp.ok) {
       const data = await resp.json();
-      if (data.status === 'VALID' && data.current?.operClass) {
-        const cls = data.current.operClass.toUpperCase();
-        let mappedClass = 'TECHNICIAN';
-        if (cls.includes('EXTRA')) mappedClass = 'EXTRA';
-        else if (cls.includes('GENERAL')) mappedClass = 'GENERAL';
-        else if (cls.includes('NOVICE')) mappedClass = 'NOVICE';
-
-        window.appState.profile.licenseClass = mappedClass;
-        const classField = document.getElementById('cfgClass');
-        if (classField) classField.value = mappedClass;
-
-        if (data.location?.gridsquare && !document.getElementById('cfgGrid')?.value) {
-          document.getElementById('cfgGrid').value = data.location.gridsquare;
-          window.appState.profile.grid = data.location.gridsquare;
+      if (data.status === 'VALID') {
+        foundAny = true;
+        if (data.current?.operClass) {
+          const cls = data.current.operClass.toUpperCase();
+          if (cls.includes('EXTRA')) mappedClass = 'EXTRA';
+          else if (cls.includes('GENERAL')) mappedClass = 'GENERAL';
+          else if (cls.includes('ADVANCED')) mappedClass = 'GENERAL';
+          else if (cls.includes('NOVICE')) mappedClass = 'NOVICE';
+          else mappedClass = 'TECHNICIAN';
         }
-        window.setupHeaderTelemetry();
-        window.saveStateToStorage();
-        if (notify) window.showToast(`FCC Verified: ${call} (${mappedClass} Class)`);
+
+        if (data.location?.gridsquare) {
+          foundGrid = data.location.gridsquare.trim();
+        }
+        if (data.location?.latitude !== undefined && data.location?.longitude !== undefined) {
+          const parsedLat = parseFloat(data.location.latitude);
+          const parsedLon = parseFloat(data.location.longitude);
+          if (!isNaN(parsedLat) && !isNaN(parsedLon)) {
+            foundLat = parsedLat;
+            foundLon = parsedLon;
+          }
+        }
+        const parsedAddr = parseCityStateFromAddress(data.address);
+        foundCity = parsedAddr.city;
+        foundState = parsedAddr.state;
+        foundCountry = 'USA';
       }
     }
   } catch (e) {
-    if (notify) window.showToast('License auto-check skipped (offline/unavailable).');
+    // Fall through to HamDB fallback
+  }
+
+  // 2. Fallback / Supplement via HamDB (adds international callsigns, QTH, and DXCC)
+  if (!foundAny || !foundGrid || !foundCity) {
+    try {
+      const hResp = await fetch(`https://api.hamdb.org/v1/${encodeURIComponent(call)}/json/ezshack`);
+      if (hResp.ok) {
+        const hData = await hResp.json();
+        const rec = hData?.hamdb?.callsign;
+        if (rec && rec.call && rec.call !== 'NOT_FOUND') {
+          foundAny = true;
+          if (!foundAny && rec.class) {
+            const c = rec.class.toUpperCase();
+            if (c.includes('E')) mappedClass = 'EXTRA';
+            else if (c.includes('G')) mappedClass = 'GENERAL';
+            else if (c.includes('N')) mappedClass = 'NOVICE';
+          }
+          if (!foundGrid && rec.grid) foundGrid = rec.grid.trim();
+          if (!foundCity && rec.addr2) foundCity = rec.addr2.trim();
+          if (!foundState && rec.state) foundState = rec.state.trim().toUpperCase();
+          if (!foundCountry && rec.country) foundCountry = rec.country.trim().toUpperCase();
+          if (isNaN(foundLat) && rec.lat) foundLat = parseFloat(rec.lat);
+          if (isNaN(foundLon) && rec.lon) foundLon = parseFloat(rec.lon);
+        }
+      }
+    } catch (e) {}
+  }
+
+  if (!foundAny) {
+    if (notify) window.showToast(`No license record found for ${call} (or lookup offline).`);
+    return;
+  }
+
+  // Compute Maidenhead grid from Lat/Lon if needed, or Lat/Lon from Maidenhead grid
+  if (!foundGrid && !isNaN(foundLat) && !isNaN(foundLon) && typeof window.latLonToMaidenhead === 'function') {
+    foundGrid = window.latLonToMaidenhead(foundLat, foundLon) || '';
+  }
+  if (foundGrid && (isNaN(foundLat) || isNaN(foundLon)) && typeof window.maidenheadToLatLon === 'function') {
+    const coords = window.maidenheadToLatLon(foundGrid);
+    if (coords) {
+      foundLat = coords.lat;
+      foundLon = coords.lon;
+    }
+  }
+
+  // Estimate CQ Zone and ITU Zone from state / coordinates
+  if (typeof window.estimateZonesFromLocation === 'function') {
+    const zones = window.estimateZonesFromLocation({
+      state: foundState,
+      country: foundCountry,
+      lat: foundLat,
+      lon: foundLon
+    });
+    foundCqz = zones.cqz || '';
+    foundItuz = zones.ituz || '';
+  }
+
+  // Apply values to appState.profile and populate all Settings modal inputs
+  window.appState.profile.callsign = call;
+  window.appState.profile.licenseClass = mappedClass;
+  if (foundGrid) window.appState.profile.grid = foundGrid;
+  if (foundCity) window.appState.profile.city = foundCity;
+  if (foundState) window.appState.profile.state = foundState;
+  if (foundCountry) window.appState.profile.country = foundCountry;
+  if (foundCqz) window.appState.profile.cqz = foundCqz;
+  if (foundItuz) window.appState.profile.ituz = foundItuz;
+  if (!isNaN(foundLat)) window.appState.profile.lat = Math.round(foundLat * 10000) / 10000;
+  if (!isNaN(foundLon)) window.appState.profile.lon = Math.round(foundLon * 10000) / 10000;
+
+  const setVal = (id, val) => {
+    const el = document.getElementById(id);
+    if (el && val !== '' && val !== undefined && val !== null) el.value = val;
+  };
+  setVal('cfgClass', mappedClass);
+  setVal('cfgGrid', foundGrid);
+  setVal('cfgCity', foundCity);
+  setVal('cfgState', foundState);
+  setVal('cfgCountry', foundCountry);
+  setVal('cfgCqz', foundCqz);
+  setVal('cfgItuz', foundItuz);
+  if (!isNaN(foundLat)) setVal('cfgLat', window.appState.profile.lat.toFixed(4));
+  if (!isNaN(foundLon)) setVal('cfgLon', window.appState.profile.lon.toFixed(4));
+
+  window.setupHeaderTelemetry();
+  window.saveStateToStorage();
+
+  if (notify) {
+    const summary = [
+      `${call} (${mappedClass})`,
+      foundGrid ? `Grid ${foundGrid}` : '',
+      (foundCity || foundState) ? `${foundCity}${foundCity && foundState ? ', ' : ''}${foundState}` : '',
+      (foundCqz || foundItuz) ? `CQ ${foundCqz || '-'} / ITU ${foundItuz || '-'}` : ''
+    ].filter(Boolean).join(' • ');
+    window.showToast(`Verified: ${summary}`);
   }
 };
 
@@ -840,6 +1006,9 @@ window.connectBridgeWebSocket = function() {
           }
           if (data.capabilities) {
             window.appState.telemetry.capabilities = data.capabilities;
+          }
+          if (Array.isArray(data.supported_bands)) {
+            window.appState.telemetry.supported_bands = data.supported_bands;
           }
           if (data.tuner_enabled !== undefined) {
             window.appState.telemetry.tunerEnabled = Boolean(data.tuner_enabled);
@@ -1441,6 +1610,8 @@ window.openSettingsModal = function(tab = 'profile') {
   if (fCountry) fCountry.value = window.appState.profile.country || 'USA';
   const fCqz = document.getElementById('cfgCqz');
   if (fCqz) fCqz.value = window.appState.profile.cqz || '';
+  const fItuz = document.getElementById('cfgItuz');
+  if (fItuz) fItuz.value = window.appState.profile.ituz || '';
   const fPower = document.getElementById('cfgPower');
   if (fPower) fPower.value = window.appState.profile.power || '100';
   const fLat = document.getElementById('cfgLat');
@@ -1486,6 +1657,7 @@ window.saveAllSettings = function() {
   const state = document.getElementById('cfgState')?.value.trim().toUpperCase() || '';
   const country = document.getElementById('cfgCountry')?.value.trim().toUpperCase() || 'USA';
   const cqz = document.getElementById('cfgCqz')?.value.trim() || '';
+  const ituz = document.getElementById('cfgItuz')?.value.trim() || '';
   const power = document.getElementById('cfgPower')?.value.trim() || '100';
   const lat = parseFloat(document.getElementById('cfgLat')?.value) || 0.0;
   const lon = parseFloat(document.getElementById('cfgLon')?.value) || 0.0;
@@ -1505,6 +1677,7 @@ window.saveAllSettings = function() {
     state, 
     country, 
     cqz, 
+    ituz,
     power, 
     rigName, 
     antenna 
@@ -1526,6 +1699,22 @@ window.calculateCoordsFromCurrentGrid = function() {
     if (coords) {
       document.getElementById('cfgLat').value = coords.lat.toFixed(4);
       document.getElementById('cfgLon').value = coords.lon.toFixed(4);
+
+      if (typeof window.estimateZonesFromLocation === 'function') {
+        const stateVal = document.getElementById('cfgState')?.value || '';
+        const countryVal = document.getElementById('cfgCountry')?.value || '';
+        const zones = window.estimateZonesFromLocation({
+          state: stateVal,
+          country: countryVal,
+          lat: coords.lat,
+          lon: coords.lon
+        });
+        const fCqz = document.getElementById('cfgCqz');
+        const fItuz = document.getElementById('cfgItuz');
+        if (fCqz && !fCqz.value && zones.cqz) fCqz.value = zones.cqz;
+        if (fItuz && !fItuz.value && zones.ituz) fItuz.value = zones.ituz;
+      }
+
       window.showToast(`Calculated Lat: ${coords.lat.toFixed(2)}, Lon: ${coords.lon.toFixed(2)}`);
     } else {
       window.showToast('Invalid Maidenhead grid locator format.');
@@ -1541,6 +1730,21 @@ window.updateLatLonFromGrid = function(val) {
       const fLon = document.getElementById('cfgLon');
       if (fLat) fLat.value = coords.lat.toFixed(4);
       if (fLon) fLon.value = coords.lon.toFixed(4);
+
+      if (typeof window.estimateZonesFromLocation === 'function') {
+        const stateVal = document.getElementById('cfgState')?.value || '';
+        const countryVal = document.getElementById('cfgCountry')?.value || '';
+        const zones = window.estimateZonesFromLocation({
+          state: stateVal,
+          country: countryVal,
+          lat: coords.lat,
+          lon: coords.lon
+        });
+        const fCqz = document.getElementById('cfgCqz');
+        const fItuz = document.getElementById('cfgItuz');
+        if (fCqz && !fCqz.value && zones.cqz) fCqz.value = zones.cqz;
+        if (fItuz && !fItuz.value && zones.ituz) fItuz.value = zones.ituz;
+      }
     }
   }
 };

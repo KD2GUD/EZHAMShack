@@ -1,6 +1,6 @@
 /* =====================================================================
    EZSHACK - DASHBOARD PANES & 16-COLUMN FLUID GRID (panes.js)
-   High-Density (16-Col) Layout, 1-Col Minimum Width & Granular Snapping
+   High-Density (16-Col) Layout, Smart Slot Placement & Preset Workspaces
    ===================================================================== */
 
 const GRID_COLS = 16; // 16-column layout (2x density of legacy 8-col grid)
@@ -82,6 +82,19 @@ const DEFAULT_EXTERNAL_SITES = [
 
 // Presets mapped to 16-Column Layout
 const PRESETS = {
+  generalOps: [
+    { catalogId: 'solar_monitor', x: 1, y: 1, w: 5, h: 8 },
+    { catalogId: 'callsign_lookup', x: 6, y: 1, w: 5, h: 8 },
+    { catalogId: 'web_launcher', x: 11, y: 1, w: 6, h: 8 },
+    { catalogId: 'qso_logger', x: 1, y: 9, w: 11, h: 8 },
+    { catalogId: 'shack_scratchpad', x: 12, y: 9, w: 5, h: 8 }
+  ],
+  satelliteOps: [
+    { catalogId: 'satellite_tracker', x: 1, y: 1, w: 11, h: 10 },
+    { catalogId: 'great_circle', x: 12, y: 1, w: 5, h: 10 },
+    { catalogId: 'qso_logger', x: 1, y: 11, w: 11, h: 7 },
+    { catalogId: 'shack_scratchpad', x: 12, y: 11, w: 5, h: 7 }
+  ],
   dxHunter: [
     { catalogId: 'dx_maps', x: 1, y: 1, w: 11, h: 8 },
     { catalogId: 'solar_monitor', x: 12, y: 1, w: 5, h: 8 },
@@ -108,6 +121,14 @@ const PRESETS = {
     { catalogId: 'shack_scratchpad', x: 1, y: 9, w: 5, h: 7 },
     { catalogId: 'qso_logger', x: 6, y: 9, w: 11, h: 7 }
   ]
+};
+
+// Pre-defined multi-pane layouts mapped to Memory Buttons P1-P4
+const DEFAULT_MEMORY_LAYOUTS = {
+  1: PRESETS.generalOps,
+  2: PRESETS.satelliteOps,
+  3: PRESETS.ft8Digital,
+  4: PRESETS.dxHunter
 };
 
 /* =====================================================================
@@ -491,6 +512,84 @@ function ensureGridCoordinates() {
       p.x = curX;
       p.y = curY;
       curX += p.w;
+    }
+  });
+}
+
+/* =====================================================================
+   SMART GRID SLOT FINDER & VIEWPORT AUTO-SCROLL
+   ===================================================================== */
+function findFirstOpenGridSlot(panes, width, height) {
+  const w = Math.max(1, Math.min(GRID_COLS, width || 6));
+  const h = Math.max(2, height || 8);
+
+  if (!Array.isArray(panes) || panes.length === 0) {
+    return { x: 1, y: 1 };
+  }
+
+  let maxBottom = 1;
+  panes.forEach(p => {
+    const bottom = (p.y || 1) + (p.h || 8);
+    if (bottom > maxBottom) maxBottom = bottom;
+  });
+
+  // Build occupied cell set (1-indexed x: 1..GRID_COLS, y: 1..maxBottom+h)
+  const occupied = new Set();
+  panes.forEach(p => {
+    const px = p.x || 1;
+    const py = p.y || 1;
+    const pw = p.w || 6;
+    const ph = p.h || 8;
+    for (let r = py; r < py + ph; r++) {
+      for (let c = px; c < px + pw; c++) {
+        occupied.add(`${c},${r}`);
+      }
+    }
+  });
+
+  // Scan top-to-bottom, left-to-right for the first open w x h block
+  for (let y = 1; y <= maxBottom; y++) {
+    for (let x = 1; x <= GRID_COLS - w + 1; x++) {
+      let fits = true;
+      for (let dy = 0; dy < h && fits; dy++) {
+        for (let dx = 0; dx < w; dx++) {
+          if (occupied.has(`${x + dx},${y + dy}`)) {
+            fits = false;
+            break;
+          }
+        }
+      }
+      if (fits) {
+        return { x, y };
+      }
+    }
+  }
+
+  return { x: 1, y: maxBottom };
+}
+
+function revealPaneInViewport(instanceId) {
+  requestAnimationFrame(() => {
+    const card = document.getElementById(`pane-${instanceId}`);
+    if (!card) return;
+
+    // Briefly highlight the newly added card so the operator sees where it landed
+    card.classList.add('ring-2', 'ring-amber-400', 'transition-shadow');
+    setTimeout(() => {
+      card.classList.remove('ring-2', 'ring-amber-400');
+    }, 1600);
+
+    const headerEl = document.getElementById('mainHeader');
+    const stripEl = document.getElementById('telemetryStrip');
+    const stickyOffset = (headerEl ? headerEl.offsetHeight : 0) + (stripEl ? stripEl.offsetHeight : 0) + 16;
+
+    const rect = card.getBoundingClientRect();
+    const isBelowFold = rect.bottom > window.innerHeight;
+    const isAboveFold = rect.top < stickyOffset;
+
+    if (isBelowFold || isAboveFold) {
+      const targetScrollY = Math.max(0, window.scrollY + rect.top - stickyOffset);
+      window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
     }
   });
 }
@@ -1068,17 +1167,9 @@ function escapeJsString(str) {
     .replace(/"/g, '&quot;');
 }
 
-window.applyPreset = function(presetKey, notify = true) {
-  const preset = PRESETS[presetKey];
-  if (!preset) return;
-
+function instantiatePresetItems(presetItems) {
   const catalog = window.getCombinedCatalog();
-
-  if (!window.appState) {
-    window.appState = { panes: [] };
-  }
-
-  window.appState.panes = preset.map(item => {
+  return presetItems.map(item => {
     const cat = catalog.find(c => c.id === item.catalogId) || {
       id: item.catalogId,
       title: item.catalogId,
@@ -1099,6 +1190,17 @@ window.applyPreset = function(presetKey, notify = true) {
       gridCols: GRID_COLS
     };
   });
+}
+
+window.applyPreset = function(presetKey, notify = true) {
+  const preset = PRESETS[presetKey];
+  if (!preset) return;
+
+  if (!window.appState) {
+    window.appState = { panes: [] };
+  }
+
+  window.appState.panes = instantiatePresetItems(preset);
 
   window.renderPanes();
   if (typeof window.saveStateToStorage === 'function') window.saveStateToStorage();
@@ -1108,7 +1210,7 @@ window.applyPreset = function(presetKey, notify = true) {
 };
 
 window.loadDefaultPreset = function() {
-  window.applyPreset('dxHunter', false);
+  window.applyPreset('generalOps', false);
 };
 
 window.populatePaneCatalog = function() {
@@ -1158,11 +1260,9 @@ window.addCatalogPane = function(catalogId) {
     window.appState.panes = [];
   }
 
-  let maxY = 1;
-  window.appState.panes.forEach(p => {
-    const bottom = (p.y || 1) + (p.h || 8);
-    if (bottom > maxY) maxY = bottom;
-  });
+  const targetW = cat.defaultW || 5;
+  const targetH = cat.defaultH || 8;
+  const slot = findFirstOpenGridSlot(window.appState.panes, targetW, targetH);
 
   const newPane = {
     instanceId: 'p_' + Math.random().toString(36).substr(2, 9),
@@ -1171,15 +1271,16 @@ window.addCatalogPane = function(catalogId) {
     isNative: cat.isNative,
     widgetType: cat.widgetType,
     urlTemplate: cat.urlTemplate || '',
-    x: 1,
-    y: maxY,
-    w: cat.defaultW || 5,
-    h: cat.defaultH || 8,
+    x: slot.x,
+    y: slot.y,
+    w: targetW,
+    h: targetH,
     gridCols: GRID_COLS
   };
 
   window.appState.panes.push(newPane);
   window.renderPanes();
+  revealPaneInViewport(newPane.instanceId);
   if (typeof window.saveStateToStorage === 'function') window.saveStateToStorage();
   if (typeof window.closeModal === 'function') window.closeModal('addPaneModal');
   if (typeof window.showToast === 'function') window.showToast(`Added "${cat.title}"`);
@@ -1213,26 +1314,24 @@ window.addCustomUrlPane = function() {
     window.appState.panes = [];
   }
 
-  let maxY = 1;
-  window.appState.panes.forEach(p => {
-    const bottom = (p.y || 1) + (p.h || 8);
-    if (bottom > maxY) maxY = bottom;
-  });
+  const targetW = 8;
+  const slot = findFirstOpenGridSlot(window.appState.panes, targetW, rowHeight);
 
   const newPane = {
     instanceId: 'p_' + Math.random().toString(36).substr(2, 9),
     title: title,
     isNative: false,
     urlTemplate: url,
-    x: 1,
-    y: maxY,
-    w: 8,
+    x: slot.x,
+    y: slot.y,
+    w: targetW,
     h: rowHeight,
     gridCols: GRID_COLS
   };
 
   window.appState.panes.push(newPane);
   window.renderPanes();
+  revealPaneInViewport(newPane.instanceId);
   if (typeof window.saveStateToStorage === 'function') window.saveStateToStorage();
   if (titleInput) titleInput.value = '';
   if (urlInput) urlInput.value = '';
@@ -1394,11 +1493,15 @@ window.loadWorkspacePreset = function(num) {
     }
   }
 
-  if (num === 1 && typeof window.loadDefaultPreset === 'function') {
-    window.loadDefaultPreset();
-    activePresetId = 1;
+  // Fall back to pre-defined default layout matching P1..P4 button labels
+  const defaultLayout = DEFAULT_MEMORY_LAYOUTS[num];
+  if (defaultLayout) {
+    activePresetId = num;
     window.renderPresetButtons();
-    if (typeof window.showToast === 'function') window.showToast('Loaded Default Layout (P1)');
+    window.appState.panes = instantiatePresetItems(defaultLayout);
+    if (typeof window.saveStateToStorage === 'function') window.saveStateToStorage();
+    if (typeof window.renderPanes === 'function') window.renderPanes();
+    if (typeof window.showToast === 'function') window.showToast(`Loaded ${currentPreset.label}`);
     return;
   }
 

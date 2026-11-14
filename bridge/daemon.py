@@ -72,8 +72,12 @@ DEFAULT_STATION_PROFILE = {
     "MY_STATE": "",
     "COUNTRY": "USA",
     "CQZ": "",
+    "ITUZ": "",
     "TX_PWR": "100"
 }
+
+HF_6M_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
+ALL_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]
 
 
 def freq_to_band(freq_hz: int) -> str:
@@ -143,6 +147,7 @@ def append_qso_to_adif(qso_data: dict, current_freq_hz: Optional[int] = None, cu
     state = profile.get("state") or profile.get("MY_STATE") or ""
     country = profile.get("country") or profile.get("COUNTRY") or "USA"
     cqz = str(profile.get("cqz") or profile.get("CQZ") or "")
+    ituz = str(profile.get("ituz") or profile.get("ITUZ") or "")
     pwr = str(profile.get("power") or profile.get("TX_PWR") or "100")
 
     fields = [
@@ -153,6 +158,7 @@ def append_qso_to_adif(qso_data: dict, current_freq_hz: Optional[int] = None, cu
         ("OPERATOR", op_call), ("STATION_CALLSIGN", op_call)
     ]
     if cqz: fields.append(("CQZ", cqz))
+    if ituz: fields.append(("ITUZ", ituz))
     if grid_sq: fields.append(("MY_GRIDSQUARE", grid_sq))
     if city: fields.append(("MY_CITY", city))
     if state: fields.append(("MY_STATE", state))
@@ -356,6 +362,7 @@ class BridgeCoordinator:
             "xcvr": self.rig.name,
             "rig_id": getattr(self.rig, "rig_id", "custom"),
             "capabilities": self._build_capabilities(),
+            "supported_bands": self._build_supported_bands(),
             "qsos": load_qsos_from_adif(),
             "sub_rx": {
                 "enabled": False,
@@ -384,11 +391,22 @@ class BridgeCoordinator:
             caps.append("tuner")
         return caps
 
+    def _build_supported_bands(self) -> List[str]:
+        """Returns the list of amateur bands supported by the loaded transceiver profile."""
+        explicit = getattr(self.rig, "supported_bands", None)
+        if isinstance(explicit, (list, tuple)) and len(explicit) > 0:
+            return list(explicit)
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if rig_id in ("ic7300", "ic7610", "ftdx10", "ftdx101", "ft891", "ts590", "ts890"):
+            return list(HF_6M_BANDS)
+        return list(ALL_BANDS)
+
     def _sync_rig_metadata(self):
         """Updates state metadata and hardware capability flags from the active rig profile."""
         self.state["xcvr"] = self.rig.name
         self.state["rig_id"] = getattr(self.rig, "rig_id", "custom")
         self.state["capabilities"] = self._build_capabilities()
+        self.state["supported_bands"] = self._build_supported_bands()
         if "tuner" not in self.state["capabilities"]:
             self.state["tuner_enabled"] = False
             self.state["tuner_tuning"] = False

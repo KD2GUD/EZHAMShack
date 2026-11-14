@@ -16,6 +16,7 @@ class IC7300Rig(BaseRig):
     name = "Icom IC-7300"
     default_baudrate = 19200
     supports_sub_rx = False
+    supported_bands = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
     civ_addr = 0x94
     ctrl_addr = 0xE0
 

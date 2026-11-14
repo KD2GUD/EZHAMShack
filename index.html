@@ -350,16 +350,17 @@
               </button>
             </div>
           </div>
-        <!-- Viewport Zoom & Fullscreen Controls -->
-        <div class="hidden md:flex items-center bg-shack-850 border border-shack-border rounded p-0.5 text-[10px] font-mono shrink-0" title="Display Scale & Fullscreen">
-          <button onclick="adjustUiZoom(-0.05)" class="px-1.5 py-1 hover:bg-shack-700 rounded text-slate-300 hover:text-cyan-400 font-bold transition" title="Zoom Out (-5%)">−</button>
-          <button id="btnZoomReset" onclick="resetUiZoom()" class="px-1 py-1 hover:bg-shack-700 rounded text-slate-400 hover:text-white transition min-w-[34px] text-center" title="Reset UI Scale to 100%">100%</button>
-          <button onclick="adjustUiZoom(0.05)" class="px-1.5 py-1 hover:bg-shack-700 rounded text-slate-300 hover:text-cyan-400 font-bold transition" title="Zoom In (+5%)">+</button>
-          <div class="h-3.5 w-px bg-shack-700 mx-0.5"></div>
-          <button id="btnFullscreen" onclick="toggleFullscreenMode()" class="p-1 hover:bg-shack-700 rounded text-slate-300 hover:text-amber-400 transition" title="Toggle Fullscreen (F11)">
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
-          </button>
-        </div>
+
+          <!-- Viewport Zoom & Fullscreen Controls -->
+          <div class="hidden md:flex items-center bg-shack-850 border border-shack-border rounded p-0.5 text-[10px] font-mono shrink-0" title="Display Scale & Fullscreen">
+            <button onclick="adjustUiZoom(-0.05)" class="px-1.5 py-1 hover:bg-shack-700 rounded text-slate-300 hover:text-cyan-400 font-bold transition" title="Zoom Out (-5%)">−</button>
+            <button id="btnZoomReset" onclick="resetUiZoom()" class="px-1 py-1 hover:bg-shack-700 rounded text-slate-400 hover:text-white transition min-w-[34px] text-center" title="Reset UI Scale to 100%">100%</button>
+            <button onclick="adjustUiZoom(0.05)" class="px-1.5 py-1 hover:bg-shack-700 rounded text-slate-300 hover:text-cyan-400 font-bold transition" title="Zoom In (+5%)">+</button>
+            <div class="h-3.5 w-px bg-shack-700 mx-0.5"></div>
+            <button id="btnFullscreen" onclick="toggleFullscreenMode()" class="p-1 hover:bg-shack-700 rounded text-slate-300 hover:text-amber-400 transition" title="Toggle Fullscreen (F11)">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"/></svg>
+            </button>
+          </div>
 
           <button id="nightModeBtn" onclick="toggleNightMode()" class="bg-shack-800 hover:bg-shack-700 border border-shack-border p-1.5 rounded text-slate-300 hover:text-red-400 transition" title="Toggle Tactical Red Night Shack Mode">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z"/></svg>
@@ -627,7 +628,7 @@
               <h4 class="font-bold text-slate-200 font-mono uppercase text-sm flex items-center gap-2">
                 <span class="w-2 h-2 rounded-full bg-amber-400"></span> Operator Identity & QTH Location
               </h4>
-              <button onclick="runLicenseLookup()" class="px-2 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 rounded text-[11px] font-mono font-bold transition">
+              <button onclick="runLicenseLookup(true)" class="px-2.5 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 rounded text-[11px] font-mono font-bold transition">
                 🔍 Auto-Detect License
               </button>
             </div>
@@ -654,7 +655,10 @@
                   <input type="text" id="cfgGrid" oninput="updateLatLonFromGrid(this.value)" placeholder="e.g. FN31pr" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-cyan-400 font-mono font-bold uppercase tracking-wider text-sm focus:outline-none focus:border-amber-500" value="AA00aa">
                   <button onclick="calculateCoordsFromCurrentGrid()" class="px-2.5 py-1 bg-shack-800 hover:bg-shack-700 border border-shack-700 rounded font-mono text-slate-300">Calc</button>
                 </div>
-                <span class="text-[10px] text-slate-500">6-char locator (e.g. FN31pr, EM48ta)</span>
+                <span class="text-[10px] text-slate-500 flex items-center justify-between mt-0.5">
+                  <span>6-char locator (e.g. FN31pr)</span>
+                  <a href="https://www.levinecentral.com/ham/grid_square.php" target="_blank" rel="noopener" class="text-cyan-400 hover:underline">Grid Lookup ↗</a>
+                </span>
               </div>
               <div>
                 <label class="block text-slate-400 mb-1 font-mono">City / QTH</label>
@@ -669,10 +673,10 @@
                 <input type="text" id="cfgCountry" placeholder="e.g. USA" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono uppercase focus:outline-none focus:border-amber-500" value="USA">
               </div>
               <div>
-                <label class="block text-slate-400 mb-1 font-mono">CQ Zone / TX Power (Watts)</label>
+                <label class="block text-slate-400 mb-1 font-mono">CQ Zone / ITU Zone</label>
                 <div class="grid grid-cols-2 gap-2">
-                  <input type="text" id="cfgCqz" placeholder="Zone" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none focus:border-amber-500" value="">
-                  <input type="text" id="cfgPower" placeholder="Watts" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none focus:border-amber-500" value="100">
+                  <input type="text" id="cfgCqz" placeholder="CQ" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none focus:border-amber-500" value="">
+                  <input type="text" id="cfgItuz" placeholder="ITU" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none focus:border-amber-500" value="">
                 </div>
               </div>
               <div>
@@ -688,7 +692,7 @@
 
           <div class="bg-shack-850 p-4 rounded border border-shack-border">
             <h4 class="font-bold text-slate-200 font-mono uppercase mb-3 text-sm">Station Equipment & Notes</h4>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label class="block text-slate-400 mb-1 font-mono">Primary Transceiver</label>
                 <input type="text" id="cfgRigName" placeholder="e.g. Yaesu FT-991A / IC-7300" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono" value="">
@@ -696,6 +700,10 @@
               <div>
                 <label class="block text-slate-400 mb-1 font-mono">Antenna System</label>
                 <input type="text" id="cfgAntenna" placeholder="e.g. 40m Dipole / SteppIR" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono" value="">
+              </div>
+              <div>
+                <label class="block text-slate-400 mb-1 font-mono">Default TX Power (Watts)</label>
+                <input type="text" id="cfgPower" placeholder="Watts" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-slate-200 font-mono focus:outline-none focus:border-amber-500" value="100">
               </div>
             </div>
           </div>
