@@ -19,7 +19,7 @@ const DEFAULT_PROFILE = {
   antenna: ''
 };
 
-// 4 Transceiver S-Meter Calibration Models
+// 5 Transceiver S-Meter Calibration Models
 window.RADIO_METER_PROFILES = {
   yaesu: {
     name: "Yaesu Modern CAT",
@@ -36,6 +36,23 @@ window.RADIO_METER_PROFILES = {
       const dbSteps = Math.min(6, Math.max(1, Math.round(overDb / 10.0)));
       const displayDb = Math.min(60, Math.max(10, Math.round(overDb / 10.0) * 10));
       return { segments: 9 + dbSteps, label: `S9+${displayDb}dB` };
+    }
+  },
+  yaesu_legacy: {
+    name: "Yaesu FT-857 / 817 / 897",
+    s0Floor: 1.0,
+    s9Threshold: 153.0,
+    unitsPerS: 17.0,
+    calculate(v) {
+      if (isNaN(v) || v <= this.s0Floor) return { segments: 0, label: 'S0' };
+      // FT-857D 0xE7 returns 0..15 nibble scaled by 17.0 (0..255)
+      const rawNibble = Math.max(0, Math.min(15, Math.round(v / 17.0)));
+      if (rawNibble === 0) return { segments: 0, label: 'S0' };
+      if (rawNibble <= 9) {
+        return { segments: rawNibble, label: `S${rawNibble}` };
+      }
+      const dbSteps = Math.min(6, rawNibble - 9);
+      return { segments: 9 + dbSteps, label: `S9+${dbSteps * 10}dB` };
     }
   },
   kenwood: {
@@ -121,7 +138,10 @@ window.appState = {
     swr: 1.0,
     powerTarget: 100,
     volumeTarget: 50,
+    tunerEnabled: false,
+    tunerTuning: false,
     xcvr: 'Radio',
+    rigId: '',
     isMuted: false,
     preMuteVol: 50,
     capabilities: [],
@@ -143,7 +163,7 @@ window.bridgeSocket = null;
 window.subReceiverWidget = null;
 
 /* =====================================================================
-   PROFILE RESOLVER ENGINE (Auto-Detection vs Manual Override)
+   PROFILE & CAPABILITY RESOLVER ENGINE
    ===================================================================== */
 window.resolveActiveMeterProfile = function() {
   const chosen = window.appState.profile.meterProfile || 'auto';
@@ -151,7 +171,16 @@ window.resolveActiveMeterProfile = function() {
     return { key: chosen, profile: window.RADIO_METER_PROFILES[chosen], isAuto: false };
   }
 
+  const rigId = (window.appState.telemetry.rigId || '').toLowerCase();
   const xcvr = (window.appState.telemetry.xcvr || '').toUpperCase();
+
+  // Check legacy Yaesu 5-byte binary rigs (FT-857D / FT-817 / FT-897) BEFORE generic FT- match
+  if (
+    rigId.includes('857') || rigId.includes('817') || rigId.includes('897') ||
+    xcvr.includes('857') || xcvr.includes('817') || xcvr.includes('897')
+  ) {
+    return { key: 'yaesu_legacy', profile: window.RADIO_METER_PROFILES.yaesu_legacy, isAuto: true };
+  }
   if (xcvr.includes('FT-') || xcvr.includes('FTDX') || xcvr.includes('YAESU') || xcvr.includes('991')) {
     return { key: 'yaesu', profile: window.RADIO_METER_PROFILES.yaesu, isAuto: true };
   }
@@ -169,6 +198,191 @@ window.calculateSmeter = function(val) {
   return active.profile.calculate(val);
 };
 
+window.isRigCapabilitySupported = function(capName) {
+  const rigId = (window.appState.telemetry.rigId || '').toLowerCase();
+  const xcvr = (window.appState.telemetry.xcvr || '').toUpperCase();
+  const isLegacyFt8xx =
+    rigId.includes('857') || rigId.includes('817') || rigId.includes('897') ||
+    xcvr.includes('857') || xcvr.includes('817') || xcvr.includes('897');
+
+  if (isLegacyFt8xx && (capName === 'af_gain' || capName === 'rf_power' || capName === 'tuner')) {
+    return false;
+  }
+
+  const caps = window.appState.telemetry.capabilities;
+  if (Array.isArray(caps) && (caps.includes('af_gain') || caps.includes('rf_power') || caps.includes('sub_rx') || caps.includes('tuner'))) {
+    return caps.includes(capName);
+  }
+
+  return true;
+};
+
+window.updateTunerDisplay = function() {
+  const atuSupported = window.isRigCapabilitySupported('tuner');
+  const badge = document.getElementById('atuStateBadge');
+  const tuneBtn = document.getElementById('btnAtuTune');
+  const toggleBtn = document.getElementById('btnAtuToggle');
+
+  if (!atuSupported) {
+    if (badge) {
+      badge.innerText = 'NONE';
+      badge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-shack-900 text-slate-500 border border-shack-800';
+    }
+    if (tuneBtn) {
+      tuneBtn.disabled = true;
+      tuneBtn.innerText = 'TUNE';
+    }
+    if (toggleBtn) toggleBtn.disabled = true;
+    return;
+  }
+
+  const isTuning = Boolean(window.appState.telemetry.tunerTuning);
+  const isEnabled = Boolean(window.appState.telemetry.tunerEnabled);
+
+  if (toggleBtn) toggleBtn.disabled = isTuning;
+
+  if (badge) {
+    if (isTuning) {
+      badge.innerText = 'TUNING';
+      badge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-amber-950 text-amber-400 border border-amber-600 animate-pulse';
+    } else if (isEnabled) {
+      badge.innerText = 'ON';
+      badge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-cyan-950 text-cyan-400 border border-cyan-700';
+    } else {
+      badge.innerText = 'OFF';
+      badge.className = 'px-1.5 py-0.5 rounded text-[10px] font-bold bg-shack-800 text-slate-400 border border-shack-700';
+    }
+  }
+
+  if (tuneBtn) {
+    tuneBtn.disabled = isTuning;
+    if (isTuning) {
+      tuneBtn.innerText = 'TUNING...';
+      tuneBtn.className = 'px-2 py-0.5 bg-amber-500 text-black font-bold rounded border border-amber-300 text-[10px] animate-pulse cursor-wait';
+    } else {
+      tuneBtn.innerText = 'TUNE';
+      tuneBtn.className = 'px-2 py-0.5 bg-shack-800 hover:bg-amber-500 hover:text-black text-amber-400 font-bold rounded border border-amber-500/40 text-[10px] transition cursor-pointer';
+    }
+  }
+};
+
+window.updateRigControlAvailability = function() {
+  const afSupported = window.isRigCapabilitySupported('af_gain');
+  const pwrSupported = window.isRigCapabilitySupported('rf_power');
+  const atuSupported = window.isRigCapabilitySupported('tuner');
+
+  // 1. Built-In ATU / Tune Control Group
+  const atuContainer = document.getElementById('atuControlGroup');
+  if (atuContainer) {
+    atuContainer.classList.toggle('opacity-35', !atuSupported);
+    atuContainer.classList.toggle('pointer-events-none', !atuSupported);
+    atuContainer.classList.toggle('select-none', !atuSupported);
+    if (!atuSupported) {
+      atuContainer.title = 'No built-in antenna tuner on this transceiver';
+    } else {
+      atuContainer.title = 'Toggle built-in ATU bypass/inline or trigger an auto-tune cycle';
+    }
+  }
+  window.updateTunerDisplay();
+
+  // 2. AF Volume Control Group (Ghost & Disable when hardware-pot only, e.g. FT-857D)
+  const vSlider = document.getElementById('afVolSlider') || document.getElementById('rigVolumeSlider');
+  const vDisp = document.getElementById('afVolDisplay') || document.getElementById('rigVolumeLabel') || document.getElementById('rigVolumeDisplay');
+  const muteBtn = document.getElementById('btnMute');
+  const volContainer =
+    document.getElementById('afVolControlGroup') ||
+    document.getElementById('afVolumeGroup') ||
+    (vSlider ? vSlider.parentElement : null);
+
+  if (vSlider) {
+    vSlider.disabled = !afSupported;
+    vSlider.classList.toggle('cursor-not-allowed', !afSupported);
+    vSlider.classList.toggle('cursor-pointer', afSupported);
+  }
+  if (muteBtn) {
+    muteBtn.disabled = !afSupported;
+  }
+  if (volContainer) {
+    volContainer.classList.toggle('opacity-35', !afSupported);
+    volContainer.classList.toggle('pointer-events-none', !afSupported);
+    volContainer.classList.toggle('select-none', !afSupported);
+    if (!afSupported) {
+      volContainer.title = 'AF Volume is controlled via the physical front-panel knob on this transceiver';
+    } else {
+      volContainer.removeAttribute('title');
+    }
+  }
+  if (vDisp) {
+    if (!afSupported) {
+      vDisp.innerText = 'KNOB';
+    } else if (vDisp.innerText === 'KNOB') {
+      vDisp.innerText = `${window.appState.telemetry.volumeTarget ?? 50}%`;
+    }
+  }
+
+  // 3. TX RF Power Control Group (Ghost & Disable when menu-only, e.g. FT-857D)
+  const pSlider = document.getElementById('txPwrSlider');
+  const pDisp = document.getElementById('txPwrDisplay');
+  const pwrContainer =
+    document.getElementById('txPwrControlGroup') ||
+    document.getElementById('txPowerGroup') ||
+    (pSlider ? pSlider.parentElement : null);
+
+  if (pSlider) {
+    pSlider.disabled = !pwrSupported;
+    pSlider.classList.toggle('cursor-not-allowed', !pwrSupported);
+    pSlider.classList.toggle('cursor-pointer', pwrSupported);
+  }
+  document.querySelectorAll('[onclick*="setQuickPower"]').forEach(btn => {
+    btn.disabled = !pwrSupported;
+    btn.classList.toggle('opacity-35', !pwrSupported);
+    btn.classList.toggle('pointer-events-none', !pwrSupported);
+  });
+  if (pwrContainer) {
+    pwrContainer.classList.toggle('opacity-35', !pwrSupported);
+    pwrContainer.classList.toggle('pointer-events-none', !pwrSupported);
+    pwrContainer.classList.toggle('select-none', !pwrSupported);
+    if (!pwrSupported) {
+      pwrContainer.title = 'TX Power is set in the radio menu (#075) on this transceiver';
+    } else {
+      pwrContainer.removeAttribute('title');
+    }
+  }
+  if (pDisp) {
+    if (!pwrSupported) {
+      pDisp.innerText = 'MENU';
+    } else if (pDisp.innerText === 'MENU') {
+      pDisp.innerText = `${window.appState.telemetry.powerTarget ?? 100}W`;
+    }
+  }
+};
+
+window.triggerBuiltInTune = function() {
+  if (!window.isRigCapabilitySupported('tuner')) return;
+  window.appState.telemetry.tunerEnabled = true;
+  window.appState.telemetry.tunerTuning = true;
+  window.updateTunerDisplay();
+
+  if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
+    window.bridgeSocket.send(JSON.stringify({ action: "start_tune" }));
+  }
+  window.showToast('Starting built-in ATU tune cycle...');
+};
+
+window.toggleBuiltInTuner = function() {
+  if (!window.isRigCapabilitySupported('tuner')) return;
+  if (window.appState.telemetry.tunerTuning) return;
+
+  const nextState = !window.appState.telemetry.tunerEnabled;
+  window.appState.telemetry.tunerEnabled = nextState;
+  window.updateTunerDisplay();
+
+  if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
+    window.bridgeSocket.send(JSON.stringify({ action: "set_tuner", enabled: nextState }));
+  }
+  window.showToast(`Built-in ATU ${nextState ? 'ENABLED (Inline)' : 'BYPASSED (Off)'}`);
+};
+
 /* =====================================================================
    INITIALIZATION & STORAGE PERSISTENCE
    ===================================================================== */
@@ -177,6 +391,7 @@ window.addEventListener('DOMContentLoaded', () => {
   window.startClocks();
   window.setupHeaderTelemetry();
   window.buildMeterSegments();
+  window.updateRigControlAvailability();
   window.connectBridgeWebSocket();
 
   // Close dropdowns on outside click
@@ -449,7 +664,7 @@ window.updateMeterDisplay = function(data) {
   }
 
   const now = Date.now();
-  if (data.power_target !== undefined && now > pwrLockUntil) {
+  if (window.isRigCapabilitySupported('rf_power') && data.power_target !== undefined && now > pwrLockUntil) {
     const pSlider = document.getElementById('txPwrSlider');
     const pDisp = document.getElementById('txPwrDisplay');
     if (pSlider) pSlider.value = data.power_target;
@@ -457,7 +672,7 @@ window.updateMeterDisplay = function(data) {
     window.appState.telemetry.powerTarget = data.power_target;
   }
 
-  if (data.volume_target !== undefined && now > volLockUntil) {
+  if (window.isRigCapabilitySupported('af_gain') && data.volume_target !== undefined && now > volLockUntil) {
     const vSlider = document.getElementById('afVolSlider') || document.getElementById('rigVolumeSlider');
     const vDisp = document.getElementById('afVolDisplay') || document.getElementById('rigVolumeLabel') || document.getElementById('rigVolumeDisplay');
     if (vSlider) vSlider.value = data.volume_target;
@@ -467,6 +682,7 @@ window.updateMeterDisplay = function(data) {
 };
 
 window.onTxPowerChange = function(val) {
+  if (!window.isRigCapabilitySupported('rf_power')) return;
   const pwr = parseInt(val, 10);
   pwrLockUntil = Date.now() + 2000;
   const pDisp = document.getElementById('txPwrDisplay');
@@ -478,6 +694,7 @@ window.onTxPowerChange = function(val) {
 };
 
 window.setQuickPower = function(val) {
+  if (!window.isRigCapabilitySupported('rf_power')) return;
   const pSlider = document.getElementById('txPwrSlider');
   if (pSlider) pSlider.value = val;
   window.onTxPowerChange(val);
@@ -485,6 +702,7 @@ window.setQuickPower = function(val) {
 };
 
 window.onAfVolumeChange = function(val) {
+  if (!window.isRigCapabilitySupported('af_gain')) return;
   const vol = parseInt(val, 10);
   volLockUntil = Date.now() + 2000;
   const vDisp = document.getElementById('afVolDisplay') || document.getElementById('rigVolumeLabel') || document.getElementById('rigVolumeDisplay');
@@ -501,6 +719,7 @@ window.onVolumeSliderInput = window.onAfVolumeChange;
 window.onVolumeSliderCommit = window.onAfVolumeChange;
 
 window.toggleMute = function() {
+  if (!window.isRigCapabilitySupported('af_gain')) return;
   const vSlider = document.getElementById('afVolSlider');
   if (window.appState.telemetry.isMuted) {
     const restoreVol = window.appState.telemetry.preMuteVol || 50;
@@ -540,11 +759,20 @@ window.connectBridgeWebSocket = function() {
           if (data.xcvr) {
             window.appState.telemetry.xcvr = data.xcvr;
           }
-
-          // Track capabilities (e.g. sub_rx on TS-2000)
+          if (data.rig_id !== undefined) {
+            window.appState.telemetry.rigId = data.rig_id;
+          }
           if (data.capabilities) {
             window.appState.telemetry.capabilities = data.capabilities;
           }
+          if (data.tuner_enabled !== undefined) {
+            window.appState.telemetry.tunerEnabled = Boolean(data.tuner_enabled);
+          }
+          if (data.tuner_tuning !== undefined) {
+            window.appState.telemetry.tunerTuning = Boolean(data.tuner_tuning);
+          }
+
+          window.updateRigControlAvailability();
 
           if (Date.now() > tuneLockUntil) {
             window.appState.vfo.frequency = data.frequency;

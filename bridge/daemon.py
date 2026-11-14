@@ -1,8 +1,9 @@
 """
 EZShack Bridge Daemon (bridge/daemon.py)
 Direct Serial CAT Engine with Dual-VFO Tracking, Sub-Receiver (Dual Watch) Telemetry,
-Hardware Settling Delays, Startup Power Readout, Embedded Hamlib rigctld Server,
-Two-Way ADIF Sync Engine, CSWSH Protection, and Dynamic Auto-Detect Rig Profile Registry.
+Built-In ATU Control, Hardware Settling Delays, Startup Power Readout,
+Embedded Hamlib rigctld Server, Two-Way ADIF Sync Engine, CSWSH Protection,
+and Dynamic Auto-Detect Rig Profile Registry.
 """
 
 import asyncio
@@ -13,7 +14,7 @@ import os
 import re
 import sys
 import time
-from typing import Any, Dict, Optional, Set
+from typing import Any, Dict, List, Optional, Set, Tuple
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(CURRENT_DIR)
@@ -318,7 +319,8 @@ class BridgeCoordinator:
     """
     Central Station CAT & Telemetry Coordinator.
     Arbitrates transceiver CAT access between physical COM port, Hamlib rigctld,
-    and dashboard WebSocket clients. Supports Dual-VFO and TS-2000 Sub-Receiver dual watch.
+    and dashboard WebSocket clients. Supports Dual-VFO, TS-2000 Sub-Receiver dual watch,
+    and built-in Automatic Antenna Tuners (ATU).
     """
     def __init__(self):
         self.serial = SerialEngine(settling_delay=0.03)
@@ -333,6 +335,7 @@ class BridgeCoordinator:
         self.running = True
         self._initial_power_synced = False
         self._ptt_start_timestamp: Optional[float] = None
+        self._tune_optimistic_until: float = 0.0
         self.active_vfo = "A"
 
         has_sub = getattr(self.rig, "supports_sub_rx", False)
@@ -348,8 +351,11 @@ class BridgeCoordinator:
             "swr": 1.0,
             "power_target": 100,
             "volume_target": 50,
+            "tuner_enabled": False,
+            "tuner_tuning": False,
             "xcvr": self.rig.name,
-            "capabilities": ["sub_rx"] if has_sub else [],
+            "rig_id": getattr(self.rig, "rig_id", "custom"),
+            "capabilities": self._build_capabilities(),
             "qsos": load_qsos_from_adif(),
             "sub_rx": {
                 "enabled": False,
@@ -362,6 +368,145 @@ class BridgeCoordinator:
             } if has_sub else None
         }
 
+    def _build_capabilities(self) -> List[str]:
+        """Builds active hardware capability flags for the loaded transceiver profile."""
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        is_legacy_ft8xx = rig_id in ("ft857d", "ft857", "ft817", "ft817nd", "ft897", "ft897d")
+        has_builtin_tuner = rig_id in ("ft991a", "ic7300", "ts2000")
+        caps: List[str] = []
+        if getattr(self.rig, "supports_sub_rx", False):
+            caps.append("sub_rx")
+        if getattr(self.rig, "supports_af_gain", not is_legacy_ft8xx):
+            caps.append("af_gain")
+        if getattr(self.rig, "supports_rf_power", not is_legacy_ft8xx):
+            caps.append("rf_power")
+        if getattr(self.rig, "supports_tuner", has_builtin_tuner):
+            caps.append("tuner")
+        return caps
+
+    def _sync_rig_metadata(self):
+        """Updates state metadata and hardware capability flags from the active rig profile."""
+        self.state["xcvr"] = self.rig.name
+        self.state["rig_id"] = getattr(self.rig, "rig_id", "custom")
+        self.state["capabilities"] = self._build_capabilities()
+        if "tuner" not in self.state["capabilities"]:
+            self.state["tuner_enabled"] = False
+            self.state["tuner_tuning"] = False
+
+        has_sub = getattr(self.rig, "supports_sub_rx", False)
+        if has_sub and self.state.get("sub_rx") is None:
+            self.state["sub_rx"] = {
+                "enabled": False,
+                "frequency": 146520000,
+                "band": "2m",
+                "mode": "FM",
+                "smeter_val": 0.0,
+                "volume": 50,
+                "muted": False
+            }
+        elif not has_sub:
+            self.state["sub_rx"] = None
+
+    def _cmd_get_tuner(self) -> Optional[bytes]:
+        if hasattr(self.rig, "cmd_get_tuner"):
+            return self.rig.cmd_get_tuner()
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if rig_id in ("ft991a", "ts2000"):
+            return b"AC;"
+        if rig_id == "ic7300":
+            return b"\xfe\xfe\x94\xe0\x1c\x01\xfd"
+        return None
+
+    def _parse_tuner_status(self, resp: bytes) -> Optional[Tuple[bool, bool]]:
+        """Parses built-in ATU reply into (tuner_enabled, tuner_tuning)."""
+        if not resp:
+            return None
+        if hasattr(self.rig, "parse_tuner"):
+            return self.rig.parse_tuner(resp)
+
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if rig_id in ("ft991a", "ts2000"):
+            text = resp.decode("ascii", errors="ignore").strip()
+            m = re.search(r"AC(\d{3});", text)
+            if not m:
+                return None
+            digits = m.group(1)
+            if rig_id == "ft991a":
+                if digits == "000":
+                    return (False, False)
+                if digits == "001":
+                    return (True, False)
+                if digits == "002":
+                    return (True, True)
+                return None
+            # Kenwood TS-2000: P1=RX AT, P2=TX AT, P3=Tuning active
+            enabled = (digits[0] == "1" or digits[1] == "1")
+            tuning = (digits[2] == "1")
+            return (enabled, tuning)
+
+        if rig_id == "ic7300":
+            marker = b"\xfe\xfe\xe0\x94\x1c\x01"
+            idx = resp.rfind(marker)
+            if idx != -1 and len(resp) > idx + len(marker):
+                status_byte = resp[idx + len(marker)]
+                if status_byte == 0x00:
+                    return (False, False)
+                if status_byte == 0x01:
+                    return (True, False)
+                if status_byte == 0x02:
+                    return (True, True)
+        return None
+
+    async def start_tune(self):
+        """Triggers an automatic tune cycle on transceivers with a built-in ATU."""
+        if "tuner" not in self.state.get("capabilities", []):
+            return
+
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if hasattr(self.rig, "cmd_start_tune"):
+            cmd = self.rig.cmd_start_tune()
+        elif rig_id == "ft991a":
+            cmd = b"AC002;"
+        elif rig_id == "ts2000":
+            cmd = b"AC111;"
+        elif rig_id == "ic7300":
+            cmd = b"\xfe\xfe\x94\xe0\x1c\x01\x02\xfd"
+        else:
+            return
+
+        self.state["tuner_enabled"] = True
+        self.state["tuner_tuning"] = True
+        self._tune_optimistic_until = time.time() + 1.2
+        await self.broadcast_state()
+
+        logger.info("Triggering built-in ATU tune cycle on %s", self.rig.name)
+        await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=0.08)
+
+    async def set_tuner(self, enabled: bool):
+        """Enables (inline) or disables (bypasses) the built-in ATU."""
+        if "tuner" not in self.state.get("capabilities", []):
+            return
+
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if hasattr(self.rig, "cmd_set_tuner"):
+            cmd = self.rig.cmd_set_tuner(bool(enabled))
+        elif rig_id == "ft991a":
+            cmd = b"AC001;" if enabled else b"AC000;"
+        elif rig_id == "ts2000":
+            cmd = b"AC110;" if enabled else b"AC000;"
+        elif rig_id == "ic7300":
+            cmd = b"\xfe\xfe\x94\xe0\x1c\x01\x01\xfd" if enabled else b"\xfe\xfe\x94\xe0\x1c\x01\x00\xfd"
+        else:
+            return
+
+        self.state["tuner_enabled"] = bool(enabled)
+        self.state["tuner_tuning"] = False
+        self._tune_optimistic_until = time.time() + 0.8
+        await self.broadcast_state()
+
+        logger.info("Set built-in ATU on %s: %s", self.rig.name, "ON" if enabled else "BYPASS")
+        await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=0.05)
+
     async def initialize(self):
         loop = asyncio.get_running_loop()
         connected = await loop.run_in_executor(None, self.serial.connect)
@@ -372,34 +517,34 @@ class BridgeCoordinator:
             forced_rig = os.environ.get("EZSHACK_RIG", "").strip().lower()
             if not forced_rig and getattr(self.serial, "detected_rig_id", None):
                 self.rig = get_rig_profile(self.serial.detected_rig_id)
-                self.state["xcvr"] = self.rig.name
+            self._sync_rig_metadata()
 
-                has_sub = getattr(self.rig, "supports_sub_rx", False)
-                self.state["capabilities"] = ["sub_rx"] if has_sub else []
-                if has_sub and self.state.get("sub_rx") is None:
-                    self.state["sub_rx"] = {
-                        "enabled": False,
-                        "frequency": 146520000,
-                        "band": "2m",
-                        "mode": "FM",
-                        "smeter_val": 0.0,
-                        "volume": 50,
-                        "muted": False
-                    }
-                elif not has_sub:
-                    self.state["sub_rx"] = None
+            logger.info("Station Online: %s on %s @ %d baud (Capabilities: %s)",
+                        self.rig.name, self.serial.port, self.serial.baudrate, self.state["capabilities"])
 
-            logger.info("Station Online: %s on %s @ %d baud", self.rig.name, self.serial.port, self.serial.baudrate)
+            if "rf_power" in self.state["capabilities"]:
+                try:
+                    pwr_resp = await self.serial.execute_command(self.rig.cmd_get_rf_power(), expect_reply=True)
+                    pwr = self.rig.parse_rf_power(pwr_resp)
+                    if pwr is not None:
+                        self.state["power_target"] = pwr
+                        self._initial_power_synced = True
+                        logger.info("Read initial RF power: %dW", pwr)
+                except Exception as e:
+                    logger.debug("Startup power read error: %s", e)
+            else:
+                self._initial_power_synced = True
 
-            try:
-                pwr_resp = await self.serial.execute_command(self.rig.cmd_get_rf_power(), expect_reply=True)
-                pwr = self.rig.parse_rf_power(pwr_resp)
-                if pwr is not None:
-                    self.state["power_target"] = pwr
-                    self._initial_power_synced = True
-                    logger.info("Read initial RF power: %dW", pwr)
-            except Exception as e:
-                logger.debug("Startup power read error: %s", e)
+            if "tuner" in self.state["capabilities"]:
+                try:
+                    t_cmd = self._cmd_get_tuner()
+                    if t_cmd:
+                        t_resp = await self.serial.execute_command(t_cmd, expect_reply=True)
+                        parsed_tuner = self._parse_tuner_status(t_resp)
+                        if parsed_tuner is not None:
+                            self.state["tuner_enabled"], self.state["tuner_tuning"] = parsed_tuner
+                except Exception as e:
+                    logger.debug("Startup tuner status read error: %s", e)
 
             if getattr(self.rig, "supports_sub_rx", False) and self.state.get("sub_rx"):
                 try:
@@ -492,12 +637,16 @@ class BridgeCoordinator:
         await self.serial.execute_command(cmd, expect_reply=False)
 
     async def set_power(self, watts: int):
+        if "rf_power" not in self.state.get("capabilities", []):
+            return
         w = max(5, min(100, int(watts)))
         self.state["power_target"] = w
         cmd = self.rig.cmd_set_rf_power(w)
         await self.serial.execute_command(cmd, expect_reply=False)
 
     async def set_volume(self, vol_percent: int):
+        if "af_gain" not in self.state.get("capabilities", []):
+            return
         v = max(0, min(100, int(vol_percent)))
         self.state["volume_target"] = v
         cmd = self.rig.cmd_set_af_gain(v)
@@ -549,7 +698,7 @@ class BridgeCoordinator:
         tx_freq = int(sat_data.get("tx_freq", 0))
         rx_mode = str(sat_data.get("rx_mode", "FM")).strip()
         tx_mode = str(sat_data.get("tx_mode", "FM")).strip()
-        tone_hz = float(sat_data.get("tone_hz") or 0.0)
+        tone_hz = float(sat_data.get("tone_hz") or sat_data.get("tone") or sat_data.get("ctcss") or 0.0)
 
         logger.info("Configuring Satellite Split: RX=%d (%s) | TX=%d (%s) | Tone=%.1f Hz",
                     rx_freq, rx_mode, tx_freq, tx_mode, tone_hz)
@@ -585,23 +734,11 @@ class BridgeCoordinator:
                 forced_rig = os.environ.get("EZSHACK_RIG", "").strip().lower()
                 if not forced_rig and getattr(self.serial, "detected_rig_id", None):
                     self.rig = get_rig_profile(self.serial.detected_rig_id)
-                    self.state["xcvr"] = self.rig.name
-                    has_sub = getattr(self.rig, "supports_sub_rx", False)
-                    self.state["capabilities"] = ["sub_rx"] if has_sub else []
-                    if has_sub and self.state.get("sub_rx") is None:
-                        self.state["sub_rx"] = {
-                            "enabled": False,
-                            "frequency": 146520000,
-                            "band": "2m",
-                            "mode": "FM",
-                            "smeter_val": 0.0,
-                            "volume": 50,
-                            "muted": False
-                        }
-                    elif not has_sub:
-                        self.state["sub_rx"] = None
+                self._sync_rig_metadata()
+                self._initial_power_synced = "rf_power" not in self.state["capabilities"]
 
-                    logger.info("Station Reconnected: %s on %s @ %d baud", self.rig.name, self.serial.port, self.serial.baudrate)
+                logger.info("Station Reconnected: %s on %s @ %d baud (Capabilities: %s)",
+                            self.rig.name, self.serial.port, self.serial.baudrate, self.state["capabilities"])
 
             cmd_smtr, cmd_pwr, cmd_swr = self.rig.cmd_get_meters()
 
@@ -614,7 +751,10 @@ class BridgeCoordinator:
                     self.state["band"] = freq_to_band(freq)
                     self.state["connected"] = True
 
-                if not self._initial_power_synced:
+                has_rf_power = "rf_power" in self.state["capabilities"]
+                has_tuner = "tuner" in self.state["capabilities"]
+
+                if not self._initial_power_synced and has_rf_power:
                     pwr_resp = await self.serial.execute_command(self.rig.cmd_get_rf_power(), expect_reply=True)
                     pwr = self.rig.parse_rf_power(pwr_resp)
                     if pwr is not None:
@@ -633,7 +773,16 @@ class BridgeCoordinator:
                 has_sub = getattr(self.rig, "supports_sub_rx", False)
                 sub_active = has_sub and self.state.get("sub_rx") and self.state["sub_rx"]["enabled"]
 
-                if tick % 32 == 0 and not self.state["ptt"]:
+                # Poll built-in ATU status rapidly during an active tune cycle, or periodically on idle RX
+                if has_tuner and time.time() > self._tune_optimistic_until and (self.state["tuner_tuning"] or (tick % 16 == 8 and not self.state["ptt"])):
+                    t_cmd = self._cmd_get_tuner()
+                    if t_cmd:
+                        t_resp = await self.serial.execute_command(t_cmd, expect_reply=True)
+                        parsed_tuner = self._parse_tuner_status(t_resp)
+                        if parsed_tuner is not None:
+                            self.state["tuner_enabled"], self.state["tuner_tuning"] = parsed_tuner
+
+                if has_rf_power and tick % 32 == 0 and not self.state["ptt"]:
                     pwr_resp = await self.serial.execute_command(self.rig.cmd_get_rf_power(), expect_reply=True)
                     pwr = self.rig.parse_rf_power(pwr_resp)
                     if pwr is not None:
@@ -733,6 +882,12 @@ class BridgeCoordinator:
 
                     elif action == "set_volume":
                         await self.set_volume(int(data.get("volume", 50)))
+
+                    elif action == "start_tune":
+                        await self.start_tune()
+
+                    elif action == "set_tuner":
+                        await self.set_tuner(bool(data.get("enabled", False)))
 
                     elif action == "set_sub_freq":
                         await self.set_sub_frequency(int(data.get("freq", 146520000)))

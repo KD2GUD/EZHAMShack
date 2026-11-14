@@ -5,17 +5,8 @@
 
 const GRID_COLS = 16; // 16-column layout (2x density of legacy 8-col grid)
 
+// Only websites verified to allow inline <iframe> embedding belong here
 const WEB_TOOLS_CATALOG = [
-  {
-    id: 'voacap_hf',
-    title: 'VOACAP HF Propagation Planner',
-    category: 'Propagation & Modeling',
-    description: 'Professional high-frequency point-to-point path prediction engine & band charts.',
-    isNative: false,
-    urlTemplate: 'https://www.voacap.com/hf/',
-    defaultW: 10,
-    defaultH: 9
-  },
   {
     id: 'dx_maps',
     title: 'DX Maps VHF/HF Live Spots',
@@ -23,18 +14,18 @@ const WEB_TOOLS_CATALOG = [
     description: 'Real-time propagation maps highlighting sporadic-E, tropospheric, and F2 openings.',
     isNative: false,
     urlTemplate: 'https://www.dxmaps.com/spots/map.php',
-    defaultW: 8,
+    defaultW: 10,
     defaultH: 8
   },
   {
-    id: 'lightning_maps',
-    title: 'Real-time Lightning & QRN Map',
-    category: 'Weather & QRN',
-    description: 'Live atmospheric discharge tracking across the globe to identify RF static.',
+    id: 'kc2g_muf',
+    title: 'KC2G Live HF MUF & Ionosphere Map',
+    category: 'Propagation & Modeling',
+    description: 'Real-time global Maximum Usable Frequency (MUF) and foF2 critical frequency contours.',
     isNative: false,
-    urlTemplate: 'https://www.lightningmaps.org/',
+    urlTemplate: 'https://prop.kc2g.com/',
     defaultW: 10,
-    defaultH: 9
+    defaultH: 8
   },
   {
     id: 'rbn_spots',
@@ -48,10 +39,51 @@ const WEB_TOOLS_CATALOG = [
   }
 ];
 
+// Sites that block <iframe> embedding (X-Frame-Options / CSP) open in new browser tabs
+const BLOCKED_EMBED_IDS = new Set(['voacap_hf', 'lightning_maps']);
+
+const DEFAULT_EXTERNAL_SITES = [
+  {
+    id: 'ext_voacap',
+    label: 'VOACAP HF Planner',
+    subtitle: 'Point-to-point HF propagation charts',
+    url: 'https://www.voacap.com/hf/',
+    accent: 'amber'
+  },
+  {
+    id: 'ext_lightning',
+    label: 'Lightning & QRN Map',
+    subtitle: 'Live global atmospheric static radar',
+    url: 'https://www.lightningmaps.org/',
+    accent: 'amber'
+  },
+  {
+    id: 'ext_qrz',
+    label: 'QRZ.com Callsign DB',
+    subtitle: 'Operator lookup & logbook',
+    url: 'https://www.qrz.com/',
+    accent: 'cyan'
+  },
+  {
+    id: 'ext_dxsummit',
+    label: 'DXSummit Spot Cluster',
+    subtitle: 'Live HF/VHF DX cluster spots',
+    url: 'http://www.dxsummit.fi/',
+    accent: 'cyan'
+  },
+  {
+    id: 'ext_windy',
+    label: 'Windy Weather & Tropo',
+    subtitle: 'Surface wind, storms & pressure fronts',
+    url: 'https://www.windy.com/',
+    accent: 'slate'
+  }
+];
+
 // Presets mapped to 16-Column Layout
 const PRESETS = {
   dxHunter: [
-    { catalogId: 'voacap_hf', x: 1, y: 1, w: 11, h: 8 },
+    { catalogId: 'dx_maps', x: 1, y: 1, w: 11, h: 8 },
     { catalogId: 'solar_monitor', x: 12, y: 1, w: 5, h: 8 },
     { catalogId: 'qso_logger', x: 1, y: 9, w: 11, h: 8 },
     { catalogId: 'great_circle', x: 12, y: 9, w: 5, h: 8 }
@@ -72,10 +104,237 @@ const PRESETS = {
   ],
   casualRagchew: [
     { catalogId: 'solar_monitor', x: 1, y: 1, w: 5, h: 8 },
-    { catalogId: 'lightning_maps', x: 6, y: 1, w: 11, h: 8 },
+    { catalogId: 'web_launcher', x: 6, y: 1, w: 11, h: 8 },
     { catalogId: 'shack_scratchpad', x: 1, y: 9, w: 5, h: 7 },
     { catalogId: 'qso_logger', x: 6, y: 9, w: 11, h: 7 }
   ]
+};
+
+/* =====================================================================
+   NATIVE WIDGET: External Tools & Site Launcher (New Browser Tabs)
+   ===================================================================== */
+if (!window.EZWidgets) window.EZWidgets = {};
+
+function getCustomExternalSites() {
+  try {
+    const saved = localStorage.getItem('EZSHACK_CUSTOM_LAUNCH_BUTTONS');
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch (e) {}
+  return [];
+}
+
+function saveCustomExternalSites(list) {
+  try {
+    localStorage.setItem('EZSHACK_CUSTOM_LAUNCH_BUTTONS', JSON.stringify(list));
+  } catch (e) {}
+}
+
+const webLauncherWidgetDefinition = {
+  id: 'web_launcher',
+  title: 'External Tools Launcher',
+  category: 'Station Operations',
+  description: 'One-click button launcher for external propagation, lightning, and DX sites that require a dedicated browser tab.',
+  isNative: true,
+  defaultW: 6,
+  defaultH: 8,
+
+  render(containerOrId, pane) {
+    const instId = (pane && pane.instanceId) ? pane.instanceId : (typeof containerOrId === 'string' ? containerOrId : 'launcher_panel');
+    const wrapper = document.createElement('div');
+    wrapper.id = `webLauncher-${instId}`;
+    wrapper.className = 'w-full h-full p-3 overflow-y-auto font-mono text-xs text-slate-200 flex flex-col justify-between gap-2.5';
+
+    wrapper.innerHTML = `
+      <div class="space-y-2">
+        <div class="flex items-center justify-between border-b border-shack-800 pb-1.5">
+          <span class="text-[10px] font-bold uppercase tracking-wider text-slate-400">
+            Launch External Tools (New Browser Tab)
+          </span>
+          <button
+            type="button"
+            onclick="window.toggleLauncherAddForm('${instId}')"
+            class="px-2 py-0.5 rounded bg-shack-850 hover:bg-cyan-950 border border-shack-700 hover:border-cyan-700 text-cyan-400 text-[10px] font-bold transition shrink-0"
+          >
+            + Add Site
+          </button>
+        </div>
+
+        <form
+          id="launcherAddForm-${instId}"
+          onsubmit="window.addCustomLauncherSite('${instId}', event)"
+          class="hidden bg-shack-900 border border-shack-700 rounded p-2 space-y-1.5"
+        >
+          <div class="grid grid-cols-1 gap-1.5">
+            <input
+              id="launcherNewLabel-${instId}"
+              type="text"
+              placeholder="Button Label (e.g. POTA Spots)"
+              class="bg-shack-950 border border-shack-700 text-slate-200 px-2 py-1 rounded text-[11px] focus:outline-none focus:border-cyan-400"
+              required
+            />
+            <input
+              id="launcherNewUrl-${instId}"
+              type="text"
+              placeholder="URL (e.g. https://pota.app)"
+              class="bg-shack-950 border border-shack-700 text-slate-200 px-2 py-1 rounded text-[11px] focus:outline-none focus:border-cyan-400"
+              required
+            />
+          </div>
+          <div class="flex justify-end gap-1.5">
+            <button
+              type="button"
+              onclick="window.toggleLauncherAddForm('${instId}', false)"
+              class="px-2 py-0.5 bg-shack-800 hover:bg-shack-700 text-slate-400 rounded text-[10px]"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              class="px-2.5 py-0.5 bg-cyan-600 hover:bg-cyan-500 text-white font-bold rounded text-[10px]"
+            >
+              Save Button
+            </button>
+          </div>
+        </form>
+
+        <div
+          id="launcherButtonsGrid-${instId}"
+          class="grid gap-2"
+          style="grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));"
+        ></div>
+      </div>
+
+      <div class="text-[10px] text-slate-500 border-t border-shack-800/70 pt-1.5 flex items-center justify-between">
+        <span>Sites with frame restrictions open cleanly in new tabs.</span>
+        <span class="text-slate-400 shrink-0 ml-2">↗ Tab Launcher</span>
+      </div>
+    `;
+
+    setTimeout(() => {
+      if (typeof window.refreshWebLauncherUI === 'function') {
+        window.refreshWebLauncherUI(instId);
+      }
+    }, 0);
+
+    return wrapper;
+  }
+};
+
+window.EZWidgets.webLauncher = webLauncherWidgetDefinition;
+window.EZWidgets.web_launcher = webLauncherWidgetDefinition;
+
+window.toggleLauncherAddForm = function(instId, forceState) {
+  const form = document.getElementById(`launcherAddForm-${instId}`);
+  if (!form) return;
+  if (typeof forceState === 'boolean') {
+    form.classList.toggle('hidden', !forceState);
+  } else {
+    form.classList.toggle('hidden');
+  }
+};
+
+window.openExternalToolTab = function(rawUrl) {
+  const resolved = resolveTemplateUrl(rawUrl);
+  if (!resolved) return;
+  window.open(resolved, '_blank', 'noopener,noreferrer');
+};
+
+window.addCustomLauncherSite = function(instId, event) {
+  if (event) event.preventDefault();
+  const labelEl = document.getElementById(`launcherNewLabel-${instId}`);
+  const urlEl = document.getElementById(`launcherNewUrl-${instId}`);
+  if (!labelEl || !urlEl) return;
+
+  const label = labelEl.value.trim();
+  let url = urlEl.value.trim();
+  if (!label || !url) return;
+
+  if (!/^https?:\/\//i.test(url)) {
+    url = 'https://' + url;
+  }
+
+  const customList = getCustomExternalSites();
+  customList.push({
+    id: 'cust_' + Math.random().toString(36).substr(2, 7),
+    label: label,
+    subtitle: url.replace(/^https?:\/\/(www\.)?/i, '').split('/')[0],
+    url: url,
+    isCustom: true
+  });
+  saveCustomExternalSites(customList);
+
+  labelEl.value = '';
+  urlEl.value = '';
+  window.toggleLauncherAddForm(instId, false);
+  window.refreshWebLauncherUI(instId);
+
+  if (typeof window.showToast === 'function') {
+    window.showToast(`Added "${label}" launcher button.`);
+  }
+};
+
+window.removeCustomLauncherSite = function(instId, siteId, event) {
+  if (event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+  const updated = getCustomExternalSites().filter(s => s.id !== siteId);
+  saveCustomExternalSites(updated);
+  window.refreshWebLauncherUI(instId);
+};
+
+window.refreshWebLauncherUI = function(instId) {
+  const grid = document.getElementById(`launcherButtonsGrid-${instId}`);
+  if (!grid) return;
+
+  const allSites = [...DEFAULT_EXTERNAL_SITES, ...getCustomExternalSites()];
+  grid.innerHTML = allSites.map(site => {
+    const safeLabel = escapeHtmlAttr(site.label);
+    const safeSub = escapeHtmlAttr(site.subtitle || '');
+    const jsUrl = escapeJsString(site.url);
+    const isAmber = site.accent === 'amber';
+
+    const borderHover = isAmber
+      ? 'hover:border-amber-500/70 hover:bg-amber-950/20'
+      : 'hover:border-cyan-500/70 hover:bg-cyan-950/20';
+    const titleColor = isAmber ? 'text-amber-300' : 'text-cyan-300';
+
+    return `
+      <div
+        role="button"
+        tabindex="0"
+        onclick="window.openExternalToolTab('${jsUrl}')"
+        onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();window.openExternalToolTab('${jsUrl}');}"
+        class="group relative w-full bg-shack-850 border border-shack-700 ${borderHover} rounded-md p-2.5 cursor-pointer transition flex items-center justify-between gap-2"
+        title="Open ${safeLabel} in a new browser tab"
+      >
+        <div class="min-w-0 flex-1">
+          <div class="font-bold ${titleColor} text-xs truncate flex items-center gap-1.5">
+            <span>${safeLabel}</span>
+          </div>
+          <div class="text-[10px] font-sans text-slate-400 truncate mt-0.5">${safeSub}</div>
+        </div>
+        <div class="flex items-center gap-1.5 shrink-0">
+          ${site.isCustom ? `
+            <button
+              type="button"
+              onclick="window.removeCustomLauncherSite('${instId}', '${site.id}', event)"
+              class="px-1.5 py-0.5 rounded bg-shack-900 hover:bg-red-950 text-slate-500 hover:text-red-400 text-[10px] border border-shack-700 transition"
+              title="Remove custom button"
+            >
+              ✕
+            </button>
+          ` : ''}
+          <span class="px-2 py-1 rounded bg-shack-900 group-hover:bg-shack-800 border border-shack-700 text-slate-300 font-bold text-[11px]">
+            Open ↗
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('');
 };
 
 function isSubRxSupported(stateData) {
@@ -140,10 +399,76 @@ window.addEventListener('ezshack:subrx', (e) => {
   }
 });
 
+function sanitizePaneList(paneList) {
+  if (!Array.isArray(paneList)) return [];
+  const hasLauncherAlready = paneList.some(
+    p => p && (p.catalogId === 'web_launcher' || p.widgetType === 'web_launcher' || p.widgetType === 'webLauncher')
+  );
+  let injectedLauncher = hasLauncherAlready;
+  const cleaned = [];
+
+  paneList.forEach((p) => {
+    if (!p) return;
+    const urlLower = (p.urlTemplate || '').toLowerCase();
+    const isBlockedSite =
+      BLOCKED_EMBED_IDS.has(p.catalogId) ||
+      urlLower.includes('voacap.com') ||
+      urlLower.includes('lightningmaps.org');
+
+    if (isBlockedSite) {
+      // Remove broken iframe pane; swap in the button launcher once if not already on dashboard
+      if (!injectedLauncher) {
+        injectedLauncher = true;
+        cleaned.push({
+          instanceId: p.instanceId || ('p_' + Math.random().toString(36).substr(2, 9)),
+          catalogId: 'web_launcher',
+          title: webLauncherWidgetDefinition.title,
+          isNative: true,
+          widgetType: 'web_launcher',
+          urlTemplate: '',
+          x: p.x || 1,
+          y: p.y || 1,
+          w: p.w || 6,
+          h: p.h || 8,
+          gridCols: GRID_COLS
+        });
+      }
+      return;
+    }
+
+    if (p.catalogId && WEB_TOOLS_CATALOG.some(c => c.id === p.catalogId)) {
+      p.isNative = false;
+    } else if (p.urlTemplate && p.isNative === undefined) {
+      p.isNative = false;
+    }
+
+    cleaned.push(p);
+  });
+
+  return cleaned;
+}
+
 function ensureGridCoordinates() {
   if (!window.appState || !window.appState.panes) return;
+
+  const beforeCount = window.appState.panes.length;
+  const hadBlocked = window.appState.panes.some(
+    p => p && (BLOCKED_EMBED_IDS.has(p.catalogId) || /voacap\.com|lightningmaps\.org/i.test(p.urlTemplate || ''))
+  );
+  window.appState.panes = sanitizePaneList(window.appState.panes);
+  if (hadBlocked || window.appState.panes.length !== beforeCount) {
+    if (typeof window.saveStateToStorage === 'function') window.saveStateToStorage();
+  }
+
   let curX = 1;
   let curY = 1;
+
+  window.appState.panes.forEach((p) => {
+    if (p.y && p.h) {
+      const bottom = p.y + p.h;
+      if (bottom > curY) curY = bottom;
+    }
+  });
 
   window.appState.panes.forEach((p) => {
     if (!p.gridCols || p.gridCols !== GRID_COLS) {
@@ -268,7 +593,6 @@ function renderSubReceiverWidget(body, pane) {
     }
   }
 
-  // Button Listeners
   pwrBtn.addEventListener('click', () => {
     sendBridge({ action: 'set_sub_power', enabled: !currentSub.enabled });
   });
@@ -314,7 +638,6 @@ function renderSubReceiverWidget(body, pane) {
 
     currentSub = { ...currentSub, ...sub };
 
-    // Power State
     if (currentSub.enabled) {
       pwrBtn.textContent = 'ON';
       pwrBtn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 transition shadow-[0_0_8px_#34d399]';
@@ -323,7 +646,6 @@ function renderSubReceiverWidget(body, pane) {
       pwrBtn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-shack-800 text-slate-400 border border-shack-700 hover:bg-shack-700 transition';
     }
 
-    // Mute State
     if (currentSub.muted) {
       muteBtn.textContent = 'MUTED';
       muteBtn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950 text-amber-400 border border-amber-800 transition';
@@ -332,7 +654,6 @@ function renderSubReceiverWidget(body, pane) {
       muteBtn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-shack-800 text-slate-400 border border-shack-700 hover:bg-shack-700 transition';
     }
 
-    // Frequency Readout
     if (currentSub.enabled && currentSub.frequency) {
       const parts = (currentSub.frequency / 1000000).toFixed(5).split('.');
       freqEl.textContent = `${parts[0]}.${parts[1].slice(0, 3)}.${parts[1].slice(3, 5)}`;
@@ -342,27 +663,31 @@ function renderSubReceiverWidget(body, pane) {
       freqEl.className = 'font-lcd text-2xl sm:text-3xl font-bold text-slate-600 tracking-wider';
     }
 
-    // Band/Mode
     bandEl.textContent = `${currentSub.band || '2m'} ${currentSub.mode || 'FM'}`;
 
-    // Meter Fill (Kenwood SM1 scale: 0 to 15)
     const rawSmeter = currentSub.enabled ? (currentSub.smeter_val || 0) : 0;
     const pct = Math.min(100, Math.max(0, Math.round((rawSmeter / 15.0) * 100)));
     smeterBar.style.width = `${pct}%`;
     smeterVal.textContent = rawSmeter > 0 ? `S${Math.round(rawSmeter)}` : 'S0';
 
-    // Volume
     if (document.activeElement !== volSlider && currentSub.volume !== undefined) {
       volSlider.value = currentSub.volume;
       volVal.textContent = `${currentSub.volume}%`;
     }
   }
 
-  // Hook live telemetry event
   window.addEventListener('ezshack:subrx', (e) => updateWidgetState(e.detail));
-
-  // Initial draw
   updateWidgetState(window.appState && window.appState.telemetry);
+}
+
+function getEffectivePaneUrl(pane) {
+  if (pane && pane.catalogId) {
+    const cat = WEB_TOOLS_CATALOG.find(c => c.id === pane.catalogId);
+    if (cat && cat.urlTemplate) {
+      return resolveTemplateUrl(cat.urlTemplate);
+    }
+  }
+  return resolveTemplateUrl(pane.urlTemplate);
 }
 
 window.renderPanes = function() {
@@ -392,21 +717,25 @@ window.renderPanes = function() {
       card.style.gridColumn = `${pane.x} / span ${pane.w}`;
       card.style.gridRow = `${pane.y} / span ${pane.h}`;
 
+      const safeTitle = escapeHtmlAttr(pane.title);
+      const effectiveUrl = getEffectivePaneUrl(pane);
+      const isEmbedPane = (pane.isNative === false) || Boolean(effectiveUrl);
+
       const header = document.createElement('div');
       header.className = 'card-drag-handle px-3 py-2 bg-shack-850 border-b border-shack-border flex items-center justify-between text-xs font-mono shrink-0 cursor-grab active:cursor-grabbing';
       
       header.innerHTML = `
         <div class="flex items-center gap-2 overflow-hidden pointer-events-none">
           <span class="text-slate-500 font-sans text-xs">⋮⋮</span>
-          <span class="w-2 h-2 rounded-full ${pane.isNative ? 'bg-cyan-400' : 'bg-amber-400'}"></span>
-          <span class="font-bold text-slate-200 truncate tracking-wide" title="${pane.title}">${pane.title}</span>
+          <span class="w-2 h-2 rounded-full ${!isEmbedPane ? 'bg-cyan-400' : 'bg-amber-400'}"></span>
+          <span class="font-bold text-slate-200 truncate tracking-wide" title="${safeTitle}">${safeTitle}</span>
         </div>
         <div class="flex items-center gap-1 text-slate-400" onclick="event.stopPropagation()">
-          ${!pane.isNative ? `
+          ${isEmbedPane ? `
             <button onclick="window.reloadPaneIframe('${pane.instanceId}')" class="p-1 hover:text-white hover:bg-shack-800 rounded transition" title="Reload iframe">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
             </button>
-            <button onclick="window.popoutPane('${pane.instanceId}')" class="p-1 hover:text-amber-400 hover:bg-shack-800 rounded transition" title="Pop out into clean popup window">
+            <button onclick="window.popoutPane('${pane.instanceId}')" class="p-1 hover:text-amber-400 hover:bg-shack-800 rounded transition" title="Open in new browser tab">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"/></svg>
             </button>
           ` : ''}
@@ -491,7 +820,8 @@ window.renderPanes = function() {
         'satellite_tracker': 'satelliteTracker',
         'callsign_lookup': 'callsignLookup',
         'psk_reporter': 'psk_reporter',
-        'sub_receiver': 'sub_receiver'
+        'sub_receiver': 'sub_receiver',
+        'web_launcher': 'webLauncher'
       };
 
       const rawKey = pane.widgetType || pane.catalogId || '';
@@ -501,9 +831,46 @@ window.renderPanes = function() {
       if (resolvedKey === 'sub_receiver' || rawKey === 'sub_receiver') {
         renderSubReceiverWidget(body, pane);
       }
-      // 2. EZWidgets registered modules
+      // 2. Non-Native Web Embeds (DXMaps, KC2G MUF, RBN, Custom Embed URLs)
+      else if (isEmbedPane) {
+        body.className = 'flex-1 relative bg-shack-950 overflow-hidden flex flex-col';
+        const safeUrl = escapeHtmlAttr(effectiveUrl);
+        const jsSafeTitle = escapeJsString(pane.title);
+        const jsSafeUrl = escapeJsString(effectiveUrl);
+
+        body.innerHTML = `
+          <div class="relative flex-1 w-full overflow-hidden bg-shack-950">
+            <div id="iframe-loader-${pane.instanceId}" class="absolute inset-0 bg-shack-950 flex flex-col items-center justify-center gap-2 text-xs font-mono text-slate-400 z-10 pointer-events-none transition-opacity duration-200">
+              <div class="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin"></div>
+              <span>Loading ${safeTitle}...</span>
+            </div>
+            <iframe
+              id="iframe-${pane.instanceId}"
+              src="${safeUrl}"
+              onload="const l=document.getElementById('iframe-loader-${pane.instanceId}'); if(l) l.style.display='none';"
+              class="w-full h-full border-0 bg-shack-950"
+              allow="geolocation"
+              referrerpolicy="no-referrer-when-downgrade"
+              sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox"
+            ></iframe>
+          </div>
+          <div class="shrink-0 bg-shack-900 border-t border-shack-800 px-3 py-1 flex items-center justify-between text-[10px] font-mono text-slate-400">
+            <span class="truncate pr-2" title="${safeUrl}">SRC: ${safeUrl}</span>
+            <div class="flex items-center gap-2 shrink-0">
+              <button onclick="window.popoutPane('${pane.instanceId}')" class="text-cyan-400 hover:underline font-bold" title="Open in new browser tab">
+                Open Tab ↗
+              </button>
+              <span class="text-slate-600">|</span>
+              <button onclick="window.openFrameShieldModal('${jsSafeTitle}', '${jsSafeUrl}')" class="text-amber-400 hover:underline font-bold" title="Help if site blocks framing">
+                Frame Blocked?
+              </button>
+            </div>
+          </div>
+        `;
+      }
+      // 3. Native EZWidgets Modules
       else {
-        body.className = 'flex-1 relative bg-shack-950 overflow-hidden';
+        body.className = 'flex-1 relative bg-shack-950 overflow-hidden flex flex-col';
         const widgetObj = window.EZWidgets && (
           window.EZWidgets[resolvedKey] || 
           window.EZWidgets[rawKey] || 
@@ -520,18 +887,6 @@ window.renderPanes = function() {
         else if (typeof window.buildNativeWidget === 'function') {
           const el = window.buildNativeWidget(resolvedKey, pane.instanceId);
           if (el instanceof HTMLElement) body.appendChild(el);
-        } 
-        else {
-          const finalUrl = resolveTemplateUrl(pane.urlTemplate);
-          body.innerHTML = `
-            <iframe id="iframe-${pane.instanceId}" src="${finalUrl}" class="w-full h-full border-0 bg-white" sandbox="allow-same-origin allow-scripts allow-forms allow-popups"></iframe>
-            <div class="absolute bottom-0 inset-x-0 bg-shack-900/90 backdrop-blur-xs border-t border-shack-800 px-3 py-1 flex items-center justify-between text-[10px] font-mono text-slate-400">
-              <span class="truncate pr-2" title="${finalUrl}">URL: ${finalUrl}</span>
-              <button onclick="window.openFrameShieldModal('${escapeQuotes(pane.title)}', '${escapeQuotes(finalUrl)}')" class="shrink-0 text-amber-400 hover:underline flex items-center gap-1 font-bold">
-                Frame Shield / Pop Out ↗
-              </button>
-            </div>
-          `;
         }
       }
       card.appendChild(body);
@@ -605,11 +960,21 @@ window.renderPanes = function() {
 
 function resolveTemplateUrl(urlTemplate) {
   if (!urlTemplate) return '';
-  const call = (window.appState && window.appState.profile && window.appState.profile.callsign) ? window.appState.profile.callsign : 'N0CALL';
+  const rawCall = (window.appState && window.appState.profile && window.appState.profile.callsign) ? window.appState.profile.callsign.trim().toUpperCase() : '';
+  const hasRealCall = rawCall && rawCall !== 'N0CALL';
+  const call = hasRealCall ? rawCall : 'N0CALL';
   const grid = (window.appState && window.appState.profile && window.appState.profile.grid) ? window.appState.profile.grid : 'AA00aa';
   const freq = (window.appState && window.appState.vfo && window.appState.vfo.frequency) ? (window.appState.vfo.frequency / 1000).toFixed(0) : '14074';
   const band = (window.appState && window.appState.vfo && window.appState.vfo.band) ? window.appState.vfo.band : '20m';
-  return urlTemplate
+
+  let resolved = urlTemplate;
+
+  // If callsign is not configured yet (N0CALL), strip &spot={callsign} so RBN shows live spots instead of empty results
+  if (!hasRealCall) {
+    resolved = resolved.replace(/[?&]spot=\{callsign\}/gi, '');
+  }
+
+  return resolved
     .replace(/{callsign}/g, encodeURIComponent(call))
     .replace(/{grid}/g, encodeURIComponent(grid))
     .replace(/{freq}/g, encodeURIComponent(freq))
@@ -618,7 +983,9 @@ function resolveTemplateUrl(urlTemplate) {
 
 window.reloadPaneIframe = function(instanceId) {
   const iframe = document.getElementById(`iframe-${instanceId}`);
+  const loader = document.getElementById(`iframe-loader-${instanceId}`);
   if (iframe) {
+    if (loader) loader.style.display = 'flex';
     const src = iframe.src;
     iframe.src = '';
     setTimeout(() => { iframe.src = src; }, 100);
@@ -628,9 +995,11 @@ window.reloadPaneIframe = function(instanceId) {
 
 window.popoutPane = function(instanceId) {
   const pane = window.appState.panes.find(p => p.instanceId === instanceId);
-  if (pane && pane.urlTemplate) {
-    const url = resolveTemplateUrl(pane.urlTemplate);
-    window.open(url, '_blank', 'width=1024,height=720,menubar=no,toolbar=no,location=no,status=no');
+  if (pane) {
+    const url = getEffectivePaneUrl(pane);
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    }
   }
 };
 
@@ -672,8 +1041,8 @@ window.renderSettingsPanesList = function() {
     row.innerHTML = `
       <div class="flex items-center gap-2">
         <span class="text-slate-500 font-mono">#${idx+1}</span>
-        <span class="font-bold text-slate-200">${p.title}</span>
-        <span class="text-[10px] text-slate-500">(${p.isNative ? 'Native' : 'Embed'}) [${p.w}x${p.h}]</span>
+        <span class="font-bold text-slate-200">${escapeHtmlAttr(p.title)}</span>
+        <span class="text-[10px] text-slate-500">(${p.isNative !== false ? 'Native' : 'Embed'}) [${p.w}x${p.h}]</span>
       </div>
       <div class="flex items-center gap-2">
         <button onclick="window.removePane('${p.instanceId}'); window.renderSettingsPanesList();" class="text-red-400 hover:text-red-300 font-mono text-xs">Remove</button>
@@ -683,8 +1052,20 @@ window.renderSettingsPanesList = function() {
   });
 };
 
-function escapeQuotes(str) {
-  return (str || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+function escapeHtmlAttr(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/'/g, '&#39;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
+function escapeJsString(str) {
+  return String(str || '')
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/"/g, '&quot;');
 }
 
 window.applyPreset = function(presetKey, notify = true) {
@@ -742,15 +1123,20 @@ window.populatePaneCatalog = function() {
     if (!item || !item.id || seenIds.has(item.id)) return;
     seenIds.add(item.id);
 
+    const badgeLabel = item.isNative ? 'NATIVE' : 'EMBED';
+    const badgeClass = item.isNative
+      ? 'bg-cyan-950 text-cyan-400 border border-cyan-800'
+      : 'bg-shack-800 text-slate-400';
+
     const div = document.createElement('div');
     div.className = 'bg-shack-850 border border-shack-border hover:border-amber-500/50 p-3 rounded flex flex-col justify-between transition';
     div.innerHTML = `
       <div>
         <div class="flex items-center justify-between mb-1">
-          <span class="font-bold text-slate-200 text-xs">${item.title}</span>
-          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded ${item.isNative ? 'bg-cyan-950 text-cyan-400 border border-cyan-800' : 'bg-shack-800 text-slate-400'}">${item.isNative ? 'NATIVE' : 'EMBED'}</span>
+          <span class="font-bold text-slate-200 text-xs">${escapeHtmlAttr(item.title)}</span>
+          <span class="text-[9px] font-mono px-1.5 py-0.5 rounded ${badgeClass}">${badgeLabel}</span>
         </div>
-        <p class="text-[11px] text-slate-400 leading-snug mb-2">${item.description}</p>
+        <p class="text-[11px] text-slate-400 leading-snug mb-2">${escapeHtmlAttr(item.description)}</p>
       </div>
       <button onclick="window.addCatalogPane('${item.id}')" class="w-full py-1.5 bg-shack-800 hover:bg-amber-500 hover:text-black text-slate-200 font-mono text-xs font-bold rounded transition">
         + Add to Dashboard
@@ -805,11 +1191,15 @@ window.addCustomUrlPane = function() {
   const heightSelect = document.getElementById('customPaneHeight');
 
   const title = titleInput?.value.trim() || 'Custom Ham Tool';
-  const url = urlInput?.value.trim();
+  let url = urlInput?.value.trim() || '';
 
   if (!url) {
     if (typeof window.showToast === 'function') window.showToast('Please enter a valid website URL.');
     return;
+  }
+
+  if (!/^https?:\/\//i.test(url)) {
+    url = 'https://' + url;
   }
 
   let rowHeight = 8;
@@ -990,9 +1380,10 @@ window.loadWorkspacePreset = function(num) {
     try {
       const layout = JSON.parse(saved);
       if (Array.isArray(layout) && layout.length > 0) {
+        const cleanedLayout = sanitizePaneList(layout);
         activePresetId = num;
         window.renderPresetButtons();
-        window.appState.panes = layout;
+        window.appState.panes = cleanedLayout;
         if (typeof window.saveStateToStorage === 'function') window.saveStateToStorage();
         if (typeof window.renderPanes === 'function') window.renderPanes();
         if (typeof window.showToast === 'function') window.showToast(`Loaded ${currentPreset.label}`);

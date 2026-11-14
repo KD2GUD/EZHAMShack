@@ -151,32 +151,41 @@
       align-items: center;
       justify-content: center;
     }
-    .card-resize-handle:hover {
+.card-resize-handle:hover {
       opacity: 1;
       color: #00f0ff;
+    }
+
+    /* Compact Preset Buttons on Laptop Viewports (< 1536px) */
+    @media (max-width: 1535px) {
+      #presetButtonsBar button {
+        padding: 0.15rem 0.45rem !important;
+        font-size: 10px !important;
+        white-space: nowrap;
+      }
     }
   </style>
 </head>
 <body class="bg-shack-950 text-slate-200 min-h-screen flex flex-col font-sans select-none antialiased">
 
   <!-- ================= TOP SHACK STATUS / HEADER (LOCKED) ================= -->
-  <header class="bg-shack-900 border-b border-shack-border px-3 sm:px-4 py-2 sticky top-0 z-30 shadow-lg">
-    <div class="max-w-[1920px] mx-auto flex items-center justify-between gap-2 sm:gap-4 flex-nowrap">
+  <header class="bg-shack-900 border-b border-shack-border px-2.5 2xl:px-4 py-1.5 2xl:py-2 sticky top-0 z-30 shadow-lg">
+    <div class="max-w-[1920px] mx-auto flex items-center justify-between gap-1.5 2xl:gap-4 flex-nowrap">
       
       <!-- [LEFT PILLAR] Brand & Operator Identity Badge -->
-      <div class="flex items-center gap-2 sm:gap-3 shrink-0">
-        <div class="flex items-center gap-2">
-          <div class="w-8 h-8 rounded bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center font-lcd font-bold text-black text-lg shadow-sm">
-            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <div class="flex items-center gap-1.5 2xl:gap-3 shrink-0">
+        <div class="flex items-center gap-1.5 2xl:gap-2">
+          <div class="w-7 h-7 2xl:w-8 2xl:h-8 rounded bg-gradient-to-br from-amber-500 to-amber-600 flex items-center justify-center font-lcd font-bold text-black text-base 2xl:text-lg shadow-sm">
+            <svg class="w-4 h-4 2xl:w-5 2xl:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M13 10V3L4 14h7v7l9-11h-7z" />
             </svg>
           </div>
           <div>
             <div class="flex items-center gap-1.5">
-              <span class="font-lcd font-bold tracking-wider text-base text-white">EZ <span class="text-amber-400">HAM</span><span class="text-cyan-400">SHACK</span></span>
-              <span class="text-[10px] font-mono uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1 rounded">V1.0.1 BETA</span>
+              <span class="font-lcd font-bold tracking-wider text-sm 2xl:text-base text-white">EZ <span class="text-amber-400">HAM</span><span class="text-cyan-400">SHACK</span></span>
+              <span class="hidden 2xl:inline text-[10px] font-mono uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1 rounded">V1.0.1 BETA</span>
             </div>
-            <div class="text-[11px] text-slate-400 font-mono flex items-center gap-1.5">
+            <div class="text-[10px] 2xl:text-[11px] text-slate-400 font-mono flex items-center gap-1">
               <span>SHACK CONSOLE</span>
               <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse-subtle"></span>
             </div>
@@ -184,43 +193,43 @@
         </div>
 
         <!-- Operator Quick Badge -->
-        <button id="operatorBadgeBtn" onclick="openSettingsModal('profile')" title="Click to edit station profile" class="flex items-center gap-2 bg-shack-800 hover:bg-shack-700 transition border border-shack-border px-2.5 py-1 rounded text-left">
-          <div class="w-2 h-2 rounded-full bg-emerald-400"></div>
+        <button id="operatorBadgeBtn" onclick="openSettingsModal('profile')" title="Click to edit station profile" class="flex items-center gap-1.5 2xl:gap-2 bg-shack-800 hover:bg-shack-700 transition border border-shack-border px-2 2xl:px-2.5 py-1 rounded text-left">
+          <div class="w-2 h-2 rounded-full bg-emerald-400 shrink-0"></div>
           <div>
-            <div class="flex items-center gap-1.5">
-              <span class="font-lcd font-bold text-amber-400 text-sm leading-tight tracking-wider" id="hdrCallsign">N0CALL</span>
+            <div class="flex items-center gap-1">
+              <span class="font-lcd font-bold text-amber-400 text-xs 2xl:text-sm leading-tight tracking-wider" id="hdrCallsign">N0CALL</span>
               <span id="hdrClassBadge" class="text-[9px] bg-cyan-950 border border-cyan-800 text-cyan-400 px-1 rounded uppercase font-bold">UNLICENSED</span>
             </div>
             <div class="text-[10px] font-mono text-slate-400 leading-tight" id="hdrGrid">AA00aa</div>
           </div>
-          <svg class="w-3.5 h-3.5 text-slate-500 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+          <svg class="w-3 h-3 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
         </button>
       </div>
 
       <!-- [CENTER PILLAR] Live VFO / Transceiver Telemetry Display -->
-      <div class="flex items-center bg-shack-950 border border-shack-border rounded px-2.5 sm:px-3 py-1.5 shadow-inner shrink-0">
+      <div class="flex items-center bg-shack-950 border border-shack-border rounded px-2 2xl:px-3 py-1 2xl:py-1.5 shadow-inner shrink-0">
         
         <!-- VFO A / VFO B Toggle -->
-        <div class="inline-flex rounded border border-shack-700 bg-shack-900 p-0.5 text-[10px] font-mono font-bold mr-2 sm:mr-3">
-          <button id="btnVfoA" onclick="setVfo('A')" title="Switch to VFO A" class="px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition">VFO A</button>
-          <button id="btnVfoB" onclick="setVfo('B')" title="Switch to VFO B" class="px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition">VFO B</button>
+        <div class="inline-flex rounded border border-shack-700 bg-shack-900 p-0.5 text-[10px] font-mono font-bold mr-1.5 2xl:mr-3">
+          <button id="btnVfoA" onclick="setVfo('A')" title="Switch to VFO A" class="px-1.5 2xl:px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition">VFO A</button>
+          <button id="btnVfoB" onclick="setVfo('B')" title="Switch to VFO B" class="px-1.5 2xl:px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition">VFO B</button>
         </div>
 
         <!-- Interactive Digit-Box Frequency Readout -->
-        <div class="flex items-center mr-2 sm:mr-3">
+        <div class="flex items-center mr-1.5 2xl:mr-3">
           <div id="vfoFrequency" class="flex items-center select-none">
             <span class="font-lcd text-xl sm:text-2xl font-bold text-slate-600">---.---.---</span>
           </div>
-          <span class="text-xs font-mono text-cyan-400/80 ml-1.5">MHz</span>
+          <span class="text-[11px] 2xl:text-xs font-mono text-cyan-400/80 ml-1">MHz</span>
         </div>
 
-        <div class="h-6 w-px bg-shack-800 mx-1"></div>
+        <div class="h-6 w-px bg-shack-800 mx-0.5 2xl:mx-1"></div>
 
         <!-- Mode & Band Badges with Quick Popovers -->
-        <div class="flex items-center gap-1.5 px-1 sm:px-2">
+        <div class="flex items-center gap-1 2xl:gap-1.5 px-1 2xl:px-2">
           
           <div class="relative">
-            <button id="vfoBandBtn" onclick="toggleBandDropdown(event)" title="Click to quickly switch bands" class="bg-shack-800 hover:bg-shack-700 border border-shack-700 text-amber-400 hover:text-amber-300 font-mono text-xs px-2 py-0.5 rounded font-bold cursor-pointer transition flex items-center gap-1">
+            <button id="vfoBandBtn" onclick="toggleBandDropdown(event)" title="Click to quickly switch bands" class="bg-shack-800 hover:bg-shack-700 border border-shack-700 text-amber-400 hover:text-amber-300 font-mono text-xs px-1.5 2xl:px-2 py-0.5 rounded font-bold cursor-pointer transition flex items-center gap-0.5">
               <span id="vfoBand">--m</span>
               <span class="text-[9px] text-slate-400">▾</span>
             </button>
@@ -248,7 +257,7 @@
           </div>
 
           <div class="relative">
-            <button id="vfoModeBtn" onclick="toggleModeDropdown(event)" title="Click to quickly switch operating mode" class="bg-cyan-950 hover:bg-cyan-900 border border-cyan-800/60 text-cyan-300 hover:text-cyan-200 font-mono text-xs px-2 py-0.5 rounded font-bold cursor-pointer transition flex items-center gap-1">
+            <button id="vfoModeBtn" onclick="toggleModeDropdown(event)" title="Click to quickly switch operating mode" class="bg-cyan-950 hover:bg-cyan-900 border border-cyan-800/60 text-cyan-300 hover:text-cyan-200 font-mono text-xs px-1.5 2xl:px-2 py-0.5 rounded font-bold cursor-pointer transition flex items-center gap-0.5">
               <span id="vfoMode">---</span>
               <span class="text-[9px] text-cyan-400">▾</span>
             </button>
@@ -271,15 +280,15 @@
 
         </div>
 
-        <div class="h-6 w-px bg-shack-800 mx-1"></div>
+        <div class="h-6 w-px bg-shack-800 mx-0.5 2xl:mx-1"></div>
 
         <!-- Rig Link Status -->
-        <div class="flex items-center gap-1.5 pl-2">
+        <div class="flex items-center gap-1 pl-1.5 2xl:pl-2">
           <div class="flex flex-col">
             <span class="text-[9px] font-mono text-slate-400 uppercase leading-none">RIG LINK</span>
             <div class="flex items-center gap-1">
               <span id="rigStatusIndicator" class="w-2 h-2 rounded-full bg-red-500 shadow-[0_0_8px_#ef4444]"></span>
-              <span id="rigStatusText" class="text-[11px] font-mono text-red-400 font-bold">CONNECTING</span>
+              <span id="rigStatusText" class="text-[10px] 2xl:text-[11px] font-mono text-red-400 font-bold">CONNECTING</span>
             </div>
           </div>
         </div>
@@ -287,7 +296,7 @@
       </div>
 
       <!-- [RIGHT PILLAR] Solar Ticker, Live UTC Clock & Master Action Buttons -->
-      <div class="flex items-center gap-2 sm:gap-3 shrink-0 justify-end">
+      <div class="flex items-center gap-1.5 2xl:gap-3 shrink-0 justify-end">
         
         <!-- Solar & Space Weather Micro Ticker -->
         <div class="hidden 2xl:flex items-center gap-2.5 bg-shack-850 border border-shack-border px-2.5 py-1.5 rounded font-mono text-xs shrink-0">
@@ -308,11 +317,11 @@
 
         <!-- Live Zulu / UTC Clock -->
         <div class="text-right shrink-0">
-          <div class="flex items-baseline gap-1 justify-end">
-            <span id="utcClock" class="font-lcd text-lg sm:text-xl font-bold text-amber-400 lcd-amber leading-none">00:00:00</span>
-            <span class="text-xs font-mono font-bold text-amber-500">Z</span>
+          <div class="flex items-baseline gap-0.5 justify-end">
+            <span id="utcClock" class="font-lcd text-base 2xl:text-xl font-bold text-amber-400 lcd-amber leading-none">00:00:00</span>
+            <span class="text-[11px] 2xl:text-xs font-mono font-bold text-amber-500">Z</span>
           </div>
-          <div class="text-[10px] font-mono text-slate-400 flex items-center justify-end gap-1.5">
+          <div class="text-[9px] 2xl:text-[10px] font-mono text-slate-400 flex items-center justify-end gap-1">
             <span id="utcDate">-- --- ----</span>
             <span class="text-slate-600">•</span>
             <span id="localClock" class="text-slate-400">LOC --:--</span>
@@ -320,16 +329,16 @@
         </div>
 
         <!-- Master Action Buttons with Power Button -->
-        <div class="flex items-center gap-1.5 border-l border-shack-border pl-2 sm:pl-3 shrink-0">
-          <button onclick="openAddPaneModal()" class="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-black px-2.5 py-1.5 rounded font-medium text-xs font-mono transition shadow-sm" title="Add a new dashboard pane">
+        <div class="flex items-center gap-1 2xl:gap-1.5 border-l border-shack-border pl-1.5 2xl:pl-3 shrink-0">
+          <button onclick="openAddPaneModal()" class="flex items-center gap-1 bg-amber-500 hover:bg-amber-400 text-black px-2 2xl:px-2.5 py-1.5 rounded font-medium text-xs font-mono transition shadow-sm" title="Add a new dashboard pane">
             <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 4v16m8-8H4"/></svg>
-            <span class="hidden sm:inline">Add Pane</span>
+            <span class="hidden 2xl:inline">Add Pane</span>
           </button>
 
           <div class="relative">
-            <button id="presetBtn" onclick="toggleDropdown('presetDropdown')" class="flex items-center gap-1 bg-shack-800 hover:bg-shack-700 text-slate-200 border border-shack-border px-2.5 py-1.5 rounded text-xs font-mono transition" title="Load layout preset">
+            <button id="presetBtn" onclick="toggleDropdown('presetDropdown')" class="flex items-center gap-1 bg-shack-800 hover:bg-shack-700 text-slate-200 border border-shack-border px-2 2xl:px-2.5 py-1.5 rounded text-xs font-mono transition" title="Load layout preset">
               <svg class="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h7"/></svg>
-              <span class="hidden md:inline">Presets</span>
+              <span class="hidden 2xl:inline">Presets</span>
             </button>
             <div id="presetDropdown" class="hidden absolute right-0 mt-2 w-48 bg-shack-900 border border-shack-border rounded shadow-2xl py-1 z-50 text-xs font-mono">
               <div class="px-3 py-1.5 text-slate-400 font-bold border-b border-shack-800">SHACK WORKFLOWS</div>
@@ -371,13 +380,12 @@
     </div>
   </header>
 
-  <!-- ================= SECONDARY RADIO TELEMETRY STRIP ================= -->
-  <div id="telemetryStrip" class="bg-shack-900 border-b border-shack-border px-3 sm:px-4 py-1.5 text-xs font-mono shadow-md">
-    <div class="max-w-[1920px] mx-auto flex flex-wrap items-center justify-between gap-3">
+ <div id="telemetryStrip" class="bg-shack-900 border-b border-shack-border px-2.5 2xl:px-4 py-1.5 text-xs font-mono shadow-md">
+    <div class="max-w-[1920px] mx-auto flex flex-wrap xl:flex-nowrap items-center justify-start gap-2 2xl:gap-3">
       
       <!-- Left: S-Meter / TX Power & SWR Bar Graph with Scale Markings -->
-      <div class="flex items-center gap-2.5 bg-shack-950 border border-shack-border px-2.5 py-1 rounded">
-        <span id="meterModeLabel" class="text-[10px] font-bold text-cyan-400 w-14">RX S-MTR</span>
+      <div class="flex items-center gap-2 bg-shack-950 border border-shack-border px-2 py-1 rounded shrink-0">
+        <span id="meterModeLabel" class="text-[10px] font-bold text-cyan-400 w-12 2xl:w-14">RX S-MTR</span>
         
         <div class="flex flex-col gap-0.5">
           <!-- Calibrated Scale Labels: S1 through +60dB -->
@@ -400,54 +408,71 @@
           </div>
         </div>
         
-        <span id="meterValueLabel" class="font-lcd text-amber-400 font-bold min-w-[70px] text-right">S0</span>
+        <span id="meterValueLabel" class="font-lcd text-amber-400 font-bold min-w-[54px] 2xl:min-w-[70px] text-right">S0</span>
       </div>
 
-<!-- Station Instrument & Preset Row -->
-<div class="flex flex-wrap items-center justify-between gap-3 bg-shack-900  border-shack-border px-3 py-2 text-xs font-mono">
-  
-  
-  <!-- Center: Workspace Presets -->
-  <div class="flex items-center gap-1.5 bg-shack-950 p-1 rounded border border-shack-800">
-    <button 
-      id="btnMem" 
-      type="button" 
-      onclick="window.armPresetMemory()" 
-      class="px-2 py-1 rounded text-[11px] font-bold bg-shack-800 hover:bg-shack-700 text-slate-300 border border-shack-700 transition" 
-      title="Press MEM, then press a preset to save and rename"
-    >
-      MEM
-    </button>
-    <div class="h-4 w-px bg-shack-800 mx-0.5"></div>
-    
-    <!-- Dynamic Preset Buttons Strip -->
-    <div id="presetButtonsBar" class="flex items-center gap-1.5"></div>
-
-    <!-- Add Preset Button -->
-    <button 
-      id="btnAddPreset" 
-      type="button" 
-      onclick="window.addNewPreset()" 
-      class="px-2 py-1 rounded text-[11px] font-bold bg-shack-800 hover:bg-cyan-950 text-cyan-400 border border-shack-700 hover:border-cyan-700 transition" 
-      title="Add new preset workspace"
-    >
-      +
-    </button>
-  </div>
-
-</div>
-
-      <!-- Right: Hardware Target Controls (TX Power & AF Volume / Mute) -->
-      <div class="flex items-center gap-3">
+      <!-- Workspace Presets (Anchored beside S-Meter) -->
+      <div class="flex items-center gap-1 2xl:gap-1.5 bg-shack-950 p-1 rounded border border-shack-800 min-w-0 shrink">
+        <button 
+          id="btnMem" 
+          type="button" 
+          onclick="window.armPresetMemory()" 
+          class="px-1.5 2xl:px-2 py-0.5 2xl:py-1 rounded text-[10px] 2xl:text-[11px] font-bold bg-shack-800 hover:bg-shack-700 text-slate-300 border border-shack-700 transition shrink-0" 
+          title="Press MEM, then press a preset to save and rename"
+        >
+          MEM
+        </button>
+        <div class="h-4 w-px bg-shack-800 mx-0.5 shrink-0"></div>
         
+        <!-- Dynamic Preset Buttons Strip -->
+        <div id="presetButtonsBar" class="flex items-center gap-1 2xl:gap-1.5 overflow-x-auto max-w-[420px] 2xl:max-w-none"></div>
+
+        <!-- Add Preset Button -->
+        <button 
+          id="btnAddPreset" 
+          type="button" 
+          onclick="window.addNewPreset()" 
+          class="px-1.5 2xl:px-2 py-0.5 2xl:py-1 rounded text-[10px] 2xl:text-[11px] font-bold bg-shack-800 hover:bg-cyan-950 text-cyan-400 border border-shack-700 hover:border-cyan-700 transition shrink-0" 
+          title="Add new preset workspace"
+        >
+          +
+        </button>
+      </div>
+
+      <!-- Right: Hardware Target Controls (ATU, TX Power & AF Volume / Mute) -->
+      <div class="ml-auto flex items-center gap-1.5 2xl:gap-3 shrink-0">
+
+        <!-- Built-In ATU Bypass / Tune Control -->
+        <div id="atuControlGroup" class="flex items-center gap-1 2xl:gap-1.5 bg-shack-950 border border-shack-border px-2 2xl:px-2.5 py-1 rounded transition-opacity">
+          <span class="text-[10px] text-slate-400 uppercase">ATU:</span>
+          <button
+            id="btnAtuToggle"
+            type="button"
+            onclick="toggleBuiltInTuner()"
+            title="Toggle built-in ATU inline / bypass"
+            class="cursor-pointer focus:outline-none"
+          >
+            <span id="atuStateBadge" class="px-1.5 py-0.5 rounded text-[10px] font-bold bg-shack-800 text-slate-400 border border-shack-700">OFF</span>
+          </button>
+          <button
+            id="btnAtuTune"
+            type="button"
+            onclick="triggerBuiltInTune()"
+            title="Trigger built-in antenna tuner cycle"
+            class="px-1.5 2xl:px-2 py-0.5 bg-shack-800 hover:bg-amber-500 hover:text-black text-amber-400 font-bold rounded border border-amber-500/40 text-[10px] transition cursor-pointer"
+          >
+            TUNE
+          </button>
+        </div>
+
         <!-- Target TX Power Dial -->
-        <div class="flex items-center gap-2 bg-shack-950 border border-shack-border px-2.5 py-1 rounded">
-          <span class="text-[10px] text-slate-400 uppercase">TX PWR:</span>
-          <div class="flex items-center gap-1.5">
-            <input type="range" id="txPwrSlider" min="5" max="100" step="5" value="100" oninput="onTxPowerChange(this.value)" class="w-20 accent-amber-500 cursor-pointer h-1.5 bg-shack-800 rounded">
-            <span id="txPwrDisplay" class="font-lcd text-amber-400 font-bold w-10 text-right">100W</span>
+        <div id="txPwrControlGroup" class="flex items-center gap-1.5 2xl:gap-2 bg-shack-950 border border-shack-border px-2 2xl:px-2.5 py-1 rounded transition-opacity">
+          <span class="text-[10px] text-slate-400 uppercase">PWR:</span>
+          <div class="flex items-center gap-1 2xl:gap-1.5">
+            <input type="range" id="txPwrSlider" min="5" max="100" step="5" value="100" oninput="onTxPowerChange(this.value)" class="w-14 2xl:w-20 accent-amber-500 cursor-pointer h-1.5 bg-shack-800 rounded">
+            <span id="txPwrDisplay" class="font-lcd text-amber-400 font-bold w-9 2xl:w-10 text-right">100W</span>
           </div>
-          <div class="flex gap-1 ml-1 text-[9px]">
+          <div class="hidden 2xl:flex gap-1 ml-1 text-[9px]">
             <button onclick="setQuickPower(5)" class="px-1.5 py-0.5 bg-shack-800 hover:bg-shack-700 rounded border border-shack-700 text-slate-300">5W</button>
             <button onclick="setQuickPower(25)" class="px-1.5 py-0.5 bg-shack-800 hover:bg-shack-700 rounded border border-shack-700 text-slate-300">25W</button>
             <button onclick="setQuickPower(50)" class="px-1.5 py-0.5 bg-shack-800 hover:bg-shack-700 rounded border border-shack-700 text-slate-300">50W</button>
@@ -456,11 +481,11 @@
         </div>
 
         <!-- AF Volume & Mute Toggle -->
-        <div class="flex items-center gap-2 bg-shack-950 border border-shack-border px-2.5 py-1 rounded">
+        <div id="afVolControlGroup" class="flex items-center gap-1.5 2xl:gap-2 bg-shack-950 border border-shack-border px-2 2xl:px-2.5 py-1 rounded transition-opacity">
           <span class="text-[10px] text-slate-400 uppercase">VOL:</span>
-          <input type="range" id="afVolSlider" min="0" max="100" step="2" value="50" oninput="onAfVolumeChange(this.value)" class="w-16 accent-cyan-400 cursor-pointer h-1.5 bg-shack-800 rounded">
+          <input type="range" id="afVolSlider" min="0" max="100" step="2" value="50" oninput="onAfVolumeChange(this.value)" class="w-12 2xl:w-16 accent-cyan-400 cursor-pointer h-1.5 bg-shack-800 rounded">
           <span id="afVolDisplay" class="font-lcd text-cyan-400 font-bold w-8 text-right">50%</span>
-          <button id="btnMute" onclick="toggleMute()" class="p-1 hover:bg-shack-800 rounded text-slate-300 hover:text-white transition" title="Mute AF Gain">
+          <button id="btnMute" onclick="toggleMute()" class="p-0.5 2xl:p-1 hover:bg-shack-800 rounded text-slate-300 hover:text-white transition" title="Mute AF Gain">
             🔊
           </button>
         </div>
@@ -469,7 +494,6 @@
 
     </div>
   </div>
-
   <!-- ================= MAIN DASHBOARD GRID ================= -->
   <main class="flex-1 p-3 sm:p-4 max-w-[1920px] w-full mx-auto">
     <div id="panesContainer"></div>
@@ -707,6 +731,7 @@
                 <select id="cfgMeterProfile" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-white font-mono">
                   <option value="auto" selected>Auto-Detect from Transceiver CAT (Recommended)</option>
                   <option value="yaesu">Yaesu Modern CAT (FT-991A, FTDX10, FTDX101, FT-891)</option>
+                  <option value="yaesu_legacy">Yaesu Legacy Binary CAT (FT-857D, FT-817ND, FT-897D)</option>
                   <option value="kenwood">Kenwood & Elecraft (TS-590, TS-2000, TS-890, K3, KX3)</option>
                   <option value="icom">Icom CI-V Standard (IC-7300, IC-705, IC-7610, IC-7100)</option>
                   <option value="generic">Generic / SDR Normalized (0–100%)</option>
