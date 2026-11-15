@@ -1,6 +1,7 @@
 """
 Icom IC-7300 CI-V Transceiver Profile (bridge/rig_profiles/ic7300.py)
-Default CI-V Address: 0x94 | Controller Address: 0xE0 | Baud: 19200 / 115200
+Default CI-V Address: 0x94 | Controller Address: 0xE0 | Baud: 19200
+Frequency Range: 30 kHz - 74.8 MHz (HF + 6m)
 """
 
 from typing import List, Optional, Tuple
@@ -16,6 +17,8 @@ class IC7300Rig(BaseRig):
     name = "Icom IC-7300"
     default_baudrate = 19200
     supports_sub_rx = False
+    min_freq_hz = 30_000
+    max_freq_hz = 74_800_000
     supported_bands = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
     civ_addr = 0x94
     ctrl_addr = 0xE0
@@ -51,10 +54,6 @@ class IC7300Rig(BaseRig):
         return bytes([0xFE, 0xFE, self.civ_addr, self.ctrl_addr]) + payload + b"\xFD"
 
     def _extract_reply(self, raw: bytes) -> Optional[bytes]:
-        """
-        Extracts the payload from the most recent transceiver reply frame
-        (FE FE E0 94 <payload> FD), ignoring echoed controller frames (FE FE 94 E0 ... FD).
-        """
         if not raw:
             return None
         target_hdr = bytes([0xFE, 0xFE, self.ctrl_addr, self.civ_addr])
@@ -68,7 +67,6 @@ class IC7300Rig(BaseRig):
 
     @staticmethod
     def _encode_freq_bcd(freq_hz: int) -> bytes:
-        """Encodes integer Hz into 5-byte little-endian BCD (1 Hz resolution)."""
         digits = f"{max(0, int(freq_hz)):010d}"
         out = bytearray(5)
         out[0] = (int(digits[8]) << 4) | int(digits[9])
@@ -116,8 +114,6 @@ class IC7300Rig(BaseRig):
             return None
         return d3 * 1000 + d2 * 100 + d1 * 10 + d0
 
-    # --- Frequency & VFO ---
-
     def cmd_get_frequency(self, vfo: str = "A") -> bytes:
         return self._frame(b"\x03")
 
@@ -128,13 +124,12 @@ class IC7300Rig(BaseRig):
         return None
 
     def cmd_set_frequency(self, freq_hz: int, vfo: str = "A") -> bytes:
-        return self._frame(b"\x05" + self._encode_freq_bcd(freq_hz))
+        clamped = max(self.min_freq_hz, min(self.max_freq_hz, int(freq_hz)))
+        return self._frame(b"\x05" + self._encode_freq_bcd(clamped))
 
     def cmd_set_vfo(self, vfo: str) -> bytes:
         vfo_byte = b"\x00" if vfo.upper() == "A" else b"\x01"
         return self._frame(b"\x07" + vfo_byte)
-
-    # --- Mode ---
 
     def cmd_get_mode(self) -> bytes:
         return self._frame(b"\x04")
@@ -148,19 +143,13 @@ class IC7300Rig(BaseRig):
     def cmd_set_mode(self, mode_str: str) -> bytes:
         m = mode_str.upper().strip()
         mode_byte = self.MODE_TO_CIV.get(m, b"\x01")
-        # Filter 1 (0x01)
         if m in ("DATA-U", "DATA", "PKTUSB"):
-            # Set USB + Data Mode ON (Filter 1)
             return self._frame(b"\x06\x01\x01") + self._frame(b"\x1A\x06\x01\x01")
         if m in ("DATA-L", "PKTLSB"):
-            # Set LSB + Data Mode ON (Filter 1)
             return self._frame(b"\x06\x00\x01") + self._frame(b"\x1A\x06\x01\x01")
         if m in ("USB", "LSB"):
-            # Set SSB + explicitly turn Data Mode OFF so rig doesn't stay stuck in USB-D/LSB-D
             return self._frame(b"\x06" + mode_byte + b"\x01") + self._frame(b"\x1A\x06\x00")
         return self._frame(b"\x06" + mode_byte + b"\x01")
-
-    # --- PTT ---
 
     def cmd_get_ptt(self) -> bytes:
         return self._frame(b"\x1C\x00")
@@ -174,13 +163,11 @@ class IC7300Rig(BaseRig):
     def cmd_set_ptt(self, tx_on: bool) -> bytes:
         return self._frame(b"\x1C\x00" + (b"\x01" if tx_on else b"\x00"))
 
-    # --- Meters & Levels ---
-
     def cmd_get_meters(self) -> Tuple[bytes, bytes, bytes]:
         return (
-            self._frame(b"\x15\x02"),  # S-meter (0000 - 0241)
-            self._frame(b"\x15\x11"),  # RF Power meter (0000 - 0255)
-            self._frame(b"\x15\x12"),  # SWR meter (0000 - 0255)
+            self._frame(b"\x15\x02"),
+            self._frame(b"\x15\x11"),
+            self._frame(b"\x15\x12"),
         )
 
     def parse_smeter(self, resp: bytes) -> float:
@@ -196,7 +183,6 @@ class IC7300Rig(BaseRig):
         if payload and len(payload) >= 4 and payload[0] == 0x15 and payload[1] == 0x11:
             raw = self._decode_level_bcd(payload[2:4])
             if raw is not None:
-                # IC-7300: 0143 ~= 50W, 0212 ~= 100W
                 return round(min(100.0, (raw / 212.0) * 100.0), 1)
         return 0.0
 
@@ -205,7 +191,6 @@ class IC7300Rig(BaseRig):
         if payload and len(payload) >= 4 and payload[0] == 0x15 and payload[1] == 0x12:
             raw = self._decode_level_bcd(payload[2:4])
             if raw is not None:
-                # 0000=1.0, 0048=1.5, 0080=2.0, 0120=3.0
                 if raw <= 48:
                     return round(1.0 + (raw / 48.0) * 0.5, 2)
                 if raw <= 80:
@@ -232,23 +217,20 @@ class IC7300Rig(BaseRig):
         raw_val = round((max(0, min(100, int(vol_percent))) / 100.0) * 255)
         return self._frame(b"\x14\x01" + self._encode_level_bcd(raw_val))
 
-    # --- Split & Satellite / Repeater ---
-
     def cmd_configure_split(
         self, rx_freq: int, tx_freq: int, rx_mode: str, tx_mode: str, tone_hz: float = 0.0
     ) -> List[Tuple[bytes, float]]:
         ops: List[Tuple[bytes, float]] = [
-            (self._frame(b"\x0F\x00"), 0.05),                               # Split OFF initially
-            (self._frame(b"\x07\x01"), 0.05),                               # Select VFO B (TX)
+            (self._frame(b"\x0F\x00"), 0.05),
+            (self._frame(b"\x07\x01"), 0.05),
             (self.cmd_set_frequency(tx_freq, "B"), 0.05),
             (self.cmd_set_mode(tx_mode), 0.05),
-            (self._frame(b"\x07\x00"), 0.05),                               # Select VFO A (RX)
+            (self._frame(b"\x07\x00"), 0.05),
             (self.cmd_set_frequency(rx_freq, "A"), 0.05),
             (self.cmd_set_mode(rx_mode), 0.05),
-            (self._frame(b"\x0F\x01"), 0.05),                               # Split ON
+            (self._frame(b"\x0F\x01"), 0.05),
         ]
         if tone_hz and tone_hz > 0:
-            # Encode tone in 0.1 Hz units into 3-byte BCD (e.g. 88.5 -> 000885 -> 00 08 85)
             tenths = f"{int(round(tone_hz * 10)):06d}"
             tone_bcd = bytes([
                 (int(tenths[0]) << 4) | int(tenths[1]),
@@ -256,9 +238,9 @@ class IC7300Rig(BaseRig):
                 (int(tenths[4]) << 4) | int(tenths[5]),
             ])
             ops.append((self._frame(b"\x1B\x00" + tone_bcd), 0.05))
-            ops.append((self._frame(b"\x16\x42\x01"), 0.05))                # Repeater Tone ON
+            ops.append((self._frame(b"\x16\x42\x01"), 0.05))
         else:
-            ops.append((self._frame(b"\x16\x42\x00"), 0.05))                # Tone OFF
+            ops.append((self._frame(b"\x16\x42\x00"), 0.05))
         return ops
 
     def cmd_disengage_satellite(self) -> List[Tuple[bytes, float]]:

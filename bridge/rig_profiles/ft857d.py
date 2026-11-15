@@ -2,6 +2,7 @@
 Yaesu FT-857D / FT-817ND / FT-897D Binary CAT Profile (bridge/rig_profiles/ft857d.py)
 Protocol: Fixed 5-byte binary frames [P1, P2, P3, P4, OPCODE]
 Serial Framing: 8N2 (2 stop bits) @ 38400 / 9600 / 4800 baud
+Frequency Range: 100 kHz - 470 MHz (HF / 6m / 2m / 70cm)
 """
 
 from typing import List, Optional, Tuple
@@ -20,6 +21,11 @@ class FT857DRig(BaseRig):
     supports_sub_rx = False
     supports_af_gain = False
     supports_rf_power = False
+    min_freq_hz: int = 100_000
+    max_freq_hz: int = 470_000_000
+    supported_bands: List[str] = [
+        "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"
+    ]
 
     MODE_TO_BYTE = {
         "LSB": 0x00,
@@ -90,7 +96,8 @@ class FT857DRig(BaseRig):
         return self._decode_freq_bcd(frame[:4])
 
     def cmd_set_frequency(self, freq_hz: int, vfo: str = "A") -> bytes:
-        return self._encode_freq_bcd(freq_hz) + b"\x01"
+        clamped = max(self.min_freq_hz, min(self.max_freq_hz, int(freq_hz)))
+        return self._encode_freq_bcd(clamped) + b"\x01"
 
     def cmd_set_vfo(self, vfo: str) -> bytes:
         # FT-857D uses opcode 0x81 to toggle between VFO A and VFO B

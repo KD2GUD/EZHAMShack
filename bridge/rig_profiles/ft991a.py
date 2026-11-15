@@ -6,6 +6,7 @@ Hardware CAT Architecture:
 - VFO selection: SV; swaps VFO-A and VFO-B into FA.
 - PTT status: TX; query returns TX0 (RX), TX1/TX2 (TX).
 - Metering: RM1 (S-Meter), RM4 (Forward Power), RM5 (SWR).
+- Frequency Range: 30 kHz - 470 MHz (HF / 6m / 2m / 70cm).
 """
 from typing import Optional, Tuple, List
 from .base_rig import BaseRig
@@ -47,6 +48,11 @@ def get_yaesu_tone_idx(hz: float) -> str:
 class FT991A(BaseRig):
     rig_id = "ft991a"
     supports_sub_rx: bool = False
+    min_freq_hz: int = 30_000
+    max_freq_hz: int = 470_000_000
+    supported_bands: List[str] = [
+        "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"
+    ]
 
     @property
     def name(self) -> str:
@@ -77,7 +83,8 @@ class FT991A(BaseRig):
         return None
 
     def cmd_set_frequency(self, freq_hz: int, vfo: str = "A") -> bytes:
-        return f"FA{int(freq_hz):09d};".encode("ascii")
+        clamped = max(self.min_freq_hz, min(self.max_freq_hz, int(freq_hz)))
+        return f"FA{clamped:09d};".encode("ascii")
 
     # --- VFO Routing ---
 
@@ -189,7 +196,8 @@ class FT991A(BaseRig):
             raw = response.decode("ascii", errors="ignore").strip()
             if raw.startswith("RM5") and raw.endswith(";"):
                 val = int(raw[3:-1])
-                if val <= 5: return 1.0
+                if val <= 5:
+                    return 1.0
                 return round(1.0 + (val / 50.0), 2)
         except Exception:
             pass

@@ -183,7 +183,7 @@
           <div>
             <div class="flex items-center gap-1.5">
               <span class="font-lcd font-bold tracking-wider text-sm 2xl:text-base text-white">EZ <span class="text-amber-400">HAM</span><span class="text-cyan-400">SHACK</span></span>
-              <span class="hidden 2xl:inline text-[10px] font-mono uppercase bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1 rounded">V1.0.1 BETA</span>
+              <span class="hidden 2xl:inline text-[10px] font-mono uppercase bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-1 rounded">V1.0.0</span>
             </div>
             <div class="text-[10px] text-slate-400 font-mono flex items-center gap-1">
               <span>SHACK CONSOLE</span>
@@ -225,18 +225,18 @@
 
         <div class="h-6 w-px bg-shack-800 mx-0.5 2xl:mx-1"></div>
 
-        <!-- Mode & Band Badges with Quick Popovers -->
+        <!-- Fixed-Width Band, 60m Channel & Mode Badges with Quick Popovers -->
         <div class="flex items-center gap-1 2xl:gap-1.5 px-1 2xl:px-1.5">
           
           <div class="relative">
-            <button id="vfoBandBtn" onclick="toggleBandDropdown(event)" title="Click to quickly switch bands (recalls last used frequency per band)" class="bg-shack-800 hover:bg-shack-700 border border-shack-700 text-amber-400 hover:text-amber-300 font-mono text-xs px-1.5 2xl:px-2 py-0.5 rounded font-bold cursor-pointer transition flex items-center gap-0.5">
-              <span id="vfoBand">--m</span>
+            <button id="vfoBandBtn" onclick="toggleBandDropdown(event)" title="Click to quickly switch bands (recalls last used frequency per band)" class="bg-shack-800 hover:bg-shack-700 border border-shack-700 text-amber-400 hover:text-amber-300 font-mono text-xs px-1.5 2xl:px-2 py-0.5 rounded font-bold cursor-pointer transition inline-flex items-center justify-between gap-0.5">
+              <span id="vfoBand" class="inline-block w-[32px] text-center">--m</span>
               <span class="text-[9px] text-slate-400">▾</span>
             </button>
-            <div id="bandDropdown" class="hidden absolute left-0 mt-2 w-56 bg-shack-900 border border-shack-border rounded shadow-2xl p-2 z-50 font-mono text-xs">
+            <div id="bandDropdown" class="hidden absolute left-0 mt-2 w-60 bg-shack-900 border border-shack-border rounded shadow-2xl p-2 z-50 font-mono text-xs">
               <div class="text-[10px] text-slate-400 font-bold uppercase pb-1 mb-1 border-b border-shack-800 flex justify-between">
                 <span>SELECT BAND</span>
-                <span class="text-cyan-400">HF / VHF / UHF</span>
+                <span class="text-cyan-400">HF / VHF / UHF / SHF</span>
               </div>
               <div class="grid grid-cols-4 gap-1 text-center">
                 <button onclick="selectBand('160m', 1840000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">160m</button>
@@ -252,13 +252,50 @@
                 <button onclick="selectBand('6m', 50313000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">6m</button>
                 <button onclick="selectBand('2m', 144200000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">2m</button>
                 <button onclick="selectBand('70cm', 432100000)" class="col-span-2 p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">70cm</button>
+                <button onclick="selectBand('23cm', 1296100000)" class="col-span-2 p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">23cm</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Contextual 60m Channelized Selector Pill (Shown only on 60m) -->
+          <div id="vfo60mChWrap" class="relative hidden">
+            <button id="vfo60mChBtn" onclick="toggle60mDropdown(event)" title="60m Channelized Band — Select US Channel 1–5" class="bg-amber-950/70 hover:bg-amber-900/70 border border-amber-700/70 text-amber-300 font-mono text-xs px-1.5 py-0.5 rounded font-bold cursor-pointer transition inline-flex items-center justify-between gap-0.5">
+              <span id="vfo60mChLabel" class="inline-block w-[48px] text-center">WRC 15k</span>
+              <span class="text-[9px] text-amber-400">▾</span>
+            </button>
+            <div id="ch60mDropdown" class="hidden absolute left-0 mt-2 w-72 bg-shack-900 border border-shack-border rounded shadow-2xl p-2 z-50 font-mono text-xs">
+              <div class="text-[10px] text-amber-400 font-bold uppercase pb-1 mb-1 border-b border-shack-800 flex justify-between">
+                <span>60M ALLOCATION (US PART 97)</span>
+                <span class="text-slate-400">ERP LIMIT</span>
+              </div>
+              <div class="space-y-1 text-left">
+                <button onclick="select60mChannel(1)" class="w-full px-2 py-1 hover:bg-shack-800 rounded flex items-center justify-between text-slate-200 hover:text-amber-300">
+                  <span><b>CH 1</b> · 5.330.500 MHz</span>
+                  <span class="text-[10px] text-slate-400">100W ERP</span>
+                </button>
+                <button onclick="select60mChannel(2)" class="w-full px-2 py-1 hover:bg-shack-800 rounded flex items-center justify-between text-slate-200 hover:text-amber-300">
+                  <span><b>CH 2</b> · 5.346.500 MHz</span>
+                  <span class="text-[10px] text-slate-400">100W ERP</span>
+                </button>
+                <button onclick="select60mChannel(3)" class="w-full px-2 py-1 hover:bg-shack-800 rounded flex items-center justify-between text-slate-200 hover:text-cyan-300">
+                  <span><b>WRC</b> · 5.357.000 MHz</span>
+                  <span class="text-[10px] text-cyan-400 font-bold">9.15W ERP</span>
+                </button>
+                <button onclick="select60mChannel(4)" class="w-full px-2 py-1 hover:bg-shack-800 rounded flex items-center justify-between text-slate-200 hover:text-amber-300">
+                  <span><b>CH 4</b> · 5.371.500 MHz</span>
+                  <span class="text-[10px] text-slate-400">100W ERP</span>
+                </button>
+                <button onclick="select60mChannel(5)" class="w-full px-2 py-1 hover:bg-shack-800 rounded flex items-center justify-between text-slate-200 hover:text-amber-300">
+                  <span><b>CH 5</b> · 5.403.500 MHz</span>
+                  <span class="text-[10px] text-slate-400">100W ERP</span>
+                </button>
               </div>
             </div>
           </div>
 
           <div class="relative">
-            <button id="vfoModeBtn" onclick="toggleModeDropdown(event)" title="Click to quickly switch operating mode" class="bg-cyan-950 hover:bg-cyan-900 border border-cyan-800/60 text-cyan-300 hover:text-cyan-200 font-mono text-xs px-1.5 2xl:px-2 py-0.5 rounded font-bold cursor-pointer transition flex items-center gap-0.5">
-              <span id="vfoMode">---</span>
+            <button id="vfoModeBtn" onclick="toggleModeDropdown(event)" title="Click to quickly switch operating mode" class="bg-cyan-950 hover:bg-cyan-900 border border-cyan-800/60 text-cyan-300 hover:text-cyan-200 font-mono text-xs px-1.5 2xl:px-2 py-0.5 rounded font-bold cursor-pointer transition inline-flex items-center justify-between gap-0.5">
+              <span id="vfoMode" class="inline-block w-[54px] text-center">---</span>
               <span class="text-[9px] text-cyan-400">▾</span>
             </button>
             <div id="modeDropdown" class="hidden absolute left-0 mt-2 w-44 bg-shack-900 border border-shack-border rounded shadow-2xl p-2 z-50 font-mono text-xs">
@@ -471,7 +508,7 @@
         <div id="txPwrControlGroup" class="flex items-center gap-1.5 2xl:gap-2 bg-shack-950 border border-shack-border px-2 2xl:px-2.5 py-1 rounded transition-opacity">
           <span class="text-[10px] text-slate-400 uppercase">PWR:</span>
           <div class="flex items-center gap-1 2xl:gap-1.5">
-            <input type="range" id="txPwrSlider" min="5" max="100" step="5" value="100" oninput="onTxPowerChange(this.value)" class="w-14 2xl:w-20 accent-amber-500 cursor-pointer h-1.5 bg-shack-800 rounded">
+            <input type="range" id="txPwrSlider" min="5" max="100" step="1" value="100" oninput="onTxPowerChange(this.value)" class="w-14 2xl:w-20 accent-amber-500 cursor-pointer h-1.5 bg-shack-800 rounded">
             <span id="txPwrDisplay" class="font-lcd text-amber-400 font-bold w-9 2xl:w-10 text-right">100W</span>
           </div>
           <div class="hidden 2xl:flex gap-1 ml-1 text-[9px]">
@@ -717,16 +754,14 @@
               <span class="text-[11px] font-mono text-cyan-400 bg-cyan-950 border border-cyan-800 px-2 py-0.5 rounded">Universal Sync</span>
             </h4>
             <p class="text-slate-400 text-xs">
-              EZShack monitors radio frequency, band, and mode directly via WebSockets connected to <code class="text-amber-400">flrig_bridge.py</code>.
+              EZShack monitors radio frequency, band, and mode directly via WebSockets connected to <code class="text-amber-400">bridge/daemon.py</code>.
             </p>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
               <div>
                 <label class="block text-slate-400 mb-1 font-mono">Software Protocol</label>
                 <select id="cfgRadioSoftware" class="w-full bg-shack-950 border border-shack-700 rounded p-2 text-white font-mono">
-                  <option value="flrig" selected>FLRIG WebSocket Bridge (ws://127.0.0.1:8088)</option>
+                  <option value="flrig" selected>EZShack Direct Serial CAT Bridge (ws://127.0.0.1:8088)</option>
                   <option value="sim">Built-in Internal Radio Simulator</option>
-                  <option value="n1mm">N1MM Logger+ (Radio Info UDP)</option>
-                  <option value="wsjtx">WSJT-X / JTDX (UDP Status Broadcast)</option>
                 </select>
               </div>
               <div>
@@ -750,13 +785,13 @@
 
           <div class="bg-shack-950 p-4 rounded border border-shack-border">
             <div class="flex items-center justify-between mb-2">
-              <span class="font-mono text-amber-400 font-bold uppercase text-[11px]">Active FLRIG Bridge Target</span>
+              <span class="font-mono text-amber-400 font-bold uppercase text-[11px]">Active Bridge Target</span>
               <button onclick="connectBridgeWebSocket()" class="px-2 py-1 bg-shack-800 hover:bg-shack-700 border border-shack-700 rounded text-[10px] font-mono text-slate-300">
                 🔄 Reconnect Socket
               </button>
             </div>
             <p class="text-[11px] text-slate-400 mb-2 font-mono">
-              Bridge script path: <code class="text-slate-200">C:\ezshack\flrig_bridge.py</code>. Relays FLRIG XML-RPC (12345) to WebSocket (8088) and writes logs to <code class="text-amber-400">C:\ezshack\shack_log.adi</code>.
+              Bridge module: <code class="text-slate-200">bridge/daemon.py</code>. Relays direct serial CAT to WebSocket (8088) and writes QSOs to <code class="text-amber-400">logs/shack_log.adi</code>.
             </p>
           </div>
         </div>

@@ -1,8 +1,8 @@
 """
 EZShack Bridge Daemon (bridge/daemon.py)
 Direct Serial CAT Engine with Dual-VFO Tracking, Sub-Receiver (Dual Watch) Telemetry,
-Built-In ATU Control, Hardware Settling Delays, Startup Power Readout,
-Embedded Hamlib rigctld Server, Two-Way ADIF Sync Engine, CSWSH Protection,
+Built-In ATU Control, Coalesced Low-Latency Frequency Tuning, Startup Power Readout,
+Embedded Hamlib rigctld Server, ADIF Logbook Writer, CSWSH Protection,
 and Dynamic Auto-Detect Rig Profile Registry.
 """
 
@@ -78,6 +78,7 @@ DEFAULT_STATION_PROFILE = {
 
 HF_6M_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
 ALL_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]
+TS2000_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm", "23cm"]
 
 
 def freq_to_band(freq_hz: int) -> str:
@@ -95,6 +96,7 @@ def freq_to_band(freq_hz: int) -> str:
     if 50.0 <= mhz <= 54.0: return "6m"
     if 144.0 <= mhz <= 148.0: return "2m"
     if 420.0 <= mhz <= 450.0: return "70cm"
+    if 1240.0 <= mhz <= 1300.0: return "23cm"
     return "--m"
 
 
@@ -325,8 +327,8 @@ class BridgeCoordinator:
     """
     Central Station CAT & Telemetry Coordinator.
     Arbitrates transceiver CAT access between physical COM port, Hamlib rigctld,
-    and dashboard WebSocket clients. Supports Dual-VFO, TS-2000 Sub-Receiver dual watch,
-    and built-in Automatic Antenna Tuners (ATU).
+    and dashboard WebSocket clients. Coalesces rapid frequency steps and suppresses
+    stale frequency readbacks during tuning so VFO transitions remain instantaneous.
     """
     def __init__(self):
         self.serial = SerialEngine(settling_delay=0.03)
@@ -342,9 +344,14 @@ class BridgeCoordinator:
         self._initial_power_synced = False
         self._ptt_start_timestamp: Optional[float] = None
         self._tune_optimistic_until: float = 0.0
+        self._freq_optimistic_until: float = 0.0
+        self._mode_optimistic_until: float = 0.0
+        self._pending_freq: Optional[Tuple[int, str]] = None
+        self._freq_writer_task: Optional[asyncio.Task] = None
         self.active_vfo = "A"
 
         has_sub = getattr(self.rig, "supports_sub_rx", False)
+        min_hz, max_hz = self._build_freq_bounds()
         self.state: Dict[str, Any] = {
             "connected": False,
             "frequency": 14074000,
@@ -361,6 +368,8 @@ class BridgeCoordinator:
             "tuner_tuning": False,
             "xcvr": self.rig.name,
             "rig_id": getattr(self.rig, "rig_id", "custom"),
+            "min_freq_hz": min_hz,
+            "max_freq_hz": max_hz,
             "capabilities": self._build_capabilities(),
             "supported_bands": self._build_supported_bands(),
             "qsos": load_qsos_from_adif(),
@@ -399,7 +408,27 @@ class BridgeCoordinator:
         rig_id = getattr(self.rig, "rig_id", "").strip().lower()
         if rig_id in ("ic7300", "ic7610", "ftdx10", "ftdx101", "ft891", "ts590", "ts890"):
             return list(HF_6M_BANDS)
+        if rig_id == "ts2000":
+            return list(TS2000_BANDS)
         return list(ALL_BANDS)
+
+    def _build_freq_bounds(self) -> Tuple[int, int]:
+        """Returns (min_freq_hz, max_freq_hz) for the loaded transceiver profile."""
+        explicit_min = getattr(self.rig, "min_freq_hz", None)
+        explicit_max = getattr(self.rig, "max_freq_hz", None)
+        if isinstance(explicit_min, int) and isinstance(explicit_max, int) and explicit_max > explicit_min:
+            return (explicit_min, explicit_max)
+
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if rig_id == "ts2000":
+            return (30_000, 1_300_000_000)
+        if rig_id == "ft991a":
+            return (30_000, 470_000_000)
+        if rig_id in ("ft857d", "ft857", "ft817", "ft817nd", "ft897", "ft897d"):
+            return (100_000, 470_000_000)
+        if rig_id in ("ic7300", "ic7610", "ftdx10", "ftdx101", "ft891", "ts590", "ts890"):
+            return (30_000, 74_800_000)
+        return (30_000, 470_000_000)
 
     def _sync_rig_metadata(self):
         """Updates state metadata and hardware capability flags from the active rig profile."""
@@ -407,6 +436,9 @@ class BridgeCoordinator:
         self.state["rig_id"] = getattr(self.rig, "rig_id", "custom")
         self.state["capabilities"] = self._build_capabilities()
         self.state["supported_bands"] = self._build_supported_bands()
+        min_hz, max_hz = self._build_freq_bounds()
+        self.state["min_freq_hz"] = min_hz
+        self.state["max_freq_hz"] = max_hz
         if "tuner" not in self.state["capabilities"]:
             self.state["tuner_enabled"] = False
             self.state["tuner_tuning"] = False
@@ -457,7 +489,6 @@ class BridgeCoordinator:
                 if digits == "002":
                     return (True, True)
                 return None
-            # Kenwood TS-2000: P1=RX AT, P2=TX AT, P3=Tuning active
             enabled = (digits[0] == "1" or digits[1] == "1")
             tuning = (digits[2] == "1")
             return (enabled, tuning)
@@ -537,8 +568,9 @@ class BridgeCoordinator:
                 self.rig = get_rig_profile(self.serial.detected_rig_id)
             self._sync_rig_metadata()
 
-            logger.info("Station Online: %s on %s @ %d baud (Capabilities: %s)",
-                        self.rig.name, self.serial.port, self.serial.baudrate, self.state["capabilities"])
+            logger.info("Station Online: %s on %s @ %d baud (Range: %d-%d Hz | Capabilities: %s)",
+                        self.rig.name, self.serial.port, self.serial.baudrate,
+                        self.state["min_freq_hz"], self.state["max_freq_hz"], self.state["capabilities"])
 
             if "rf_power" in self.state["capabilities"]:
                 try:
@@ -596,12 +628,32 @@ class BridgeCoordinator:
                 dead.add(ws)
         self.connected_ws.difference_update(dead)
 
+    async def _flush_pending_frequency(self):
+        """Drains coalesced frequency changes to the serial bus so rapid wheel steps never queue up."""
+        try:
+            while self._pending_freq is not None and self.running:
+                target_hz, target_vfo = self._pending_freq
+                self._pending_freq = None
+                self._freq_optimistic_until = time.time() + 0.70
+                cmd = self.rig.cmd_set_frequency(target_hz, vfo=target_vfo)
+                await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=0.015)
+                self._freq_optimistic_until = time.time() + 0.55
+        finally:
+            self._freq_writer_task = None
+
     async def set_frequency(self, freq_hz: int, vfo: Optional[str] = None):
         target_vfo = (vfo or self.active_vfo).upper()
-        self.state["frequency"] = freq_hz
-        self.state["band"] = freq_to_band(freq_hz)
-        cmd = self.rig.cmd_set_frequency(freq_hz, vfo=target_vfo)
-        await self.serial.execute_command(cmd, expect_reply=False)
+        min_hz = self.state.get("min_freq_hz", 30_000)
+        max_hz = self.state.get("max_freq_hz", 470_000_000)
+        clamped_hz = max(min_hz, min(max_hz, int(freq_hz)))
+
+        self.state["frequency"] = clamped_hz
+        self.state["band"] = freq_to_band(clamped_hz)
+        self._freq_optimistic_until = time.time() + 0.75
+        self._pending_freq = (clamped_hz, target_vfo)
+
+        if self._freq_writer_task is None or self._freq_writer_task.done():
+            self._freq_writer_task = asyncio.create_task(self._flush_pending_frequency())
 
     async def set_vfo(self, vfo: str):
         vfo_clean = vfo.upper().strip()
@@ -613,6 +665,7 @@ class BridgeCoordinator:
 
         self.active_vfo = vfo_clean
         self.state["vfo"] = vfo_clean
+        self._freq_optimistic_until = time.time() + 0.65
 
         if hasattr(self.rig, "cmd_set_vfo"):
             cmd = self.rig.cmd_set_vfo(vfo_clean)
@@ -636,12 +689,14 @@ class BridgeCoordinator:
         if mode:
             self.state["mode"] = mode
 
+        self._freq_optimistic_until = 0.0
         logger.info("Switched to VFO %s: %d Hz (%s)", self.active_vfo, self.state["frequency"], self.state["mode"])
 
     async def set_mode(self, mode_str: str):
         self.state["mode"] = mode_str
+        self._mode_optimistic_until = time.time() + 0.65
         cmd = self.rig.cmd_set_mode(mode_str)
-        await self.serial.execute_command(cmd, expect_reply=False)
+        await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=0.02)
 
     async def set_ptt(self, tx_on: bool):
         self.state["ptt"] = tx_on
@@ -721,6 +776,7 @@ class BridgeCoordinator:
         logger.info("Configuring Satellite Split: RX=%d (%s) | TX=%d (%s) | Tone=%.1f Hz",
                     rx_freq, rx_mode, tx_freq, tx_mode, tone_hz)
 
+        self._freq_optimistic_until = time.time() + 1.5
         timed_ops = self.rig.cmd_configure_split(rx_freq, tx_freq, rx_mode, tx_mode, tone_hz)
         for cmd, settle in timed_ops:
             await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=settle)
@@ -755,19 +811,23 @@ class BridgeCoordinator:
                 self._sync_rig_metadata()
                 self._initial_power_synced = "rf_power" not in self.state["capabilities"]
 
-                logger.info("Station Reconnected: %s on %s @ %d baud (Capabilities: %s)",
-                            self.rig.name, self.serial.port, self.serial.baudrate, self.state["capabilities"])
+                logger.info("Station Reconnected: %s on %s @ %d baud (Range: %d-%d Hz | Capabilities: %s)",
+                            self.rig.name, self.serial.port, self.serial.baudrate,
+                            self.state["min_freq_hz"], self.state["max_freq_hz"], self.state["capabilities"])
 
             cmd_smtr, cmd_pwr, cmd_swr = self.rig.cmd_get_meters()
 
             try:
-                active_cmd = self.rig.cmd_get_frequency(self.active_vfo)
-                fa_resp = await self.serial.execute_command(active_cmd, expect_reply=True)
-                freq = self.rig.parse_frequency(fa_resp)
-                if freq:
-                    self.state["frequency"] = freq
-                    self.state["band"] = freq_to_band(freq)
-                    self.state["connected"] = True
+                now = time.time()
+                # Skip FA; query while user is actively tuning so the serial bus stays free for set_freq
+                if now >= self._freq_optimistic_until and self._pending_freq is None:
+                    active_cmd = self.rig.cmd_get_frequency(self.active_vfo)
+                    fa_resp = await self.serial.execute_command(active_cmd, expect_reply=True)
+                    freq = self.rig.parse_frequency(fa_resp)
+                    if freq and time.time() >= self._freq_optimistic_until and self._pending_freq is None:
+                        self.state["frequency"] = freq
+                        self.state["band"] = freq_to_band(freq)
+                        self.state["connected"] = True
 
                 has_rf_power = "rf_power" in self.state["capabilities"]
                 has_tuner = "tuner" in self.state["capabilities"]
@@ -791,7 +851,12 @@ class BridgeCoordinator:
                 has_sub = getattr(self.rig, "supports_sub_rx", False)
                 sub_active = has_sub and self.state.get("sub_rx") and self.state["sub_rx"]["enabled"]
 
-                # Poll built-in ATU status rapidly during an active tune cycle, or periodically on idle RX
+                # Yield secondary polls during active frequency tuning so dial response stays instantaneous
+                if time.time() < self._freq_optimistic_until or self._pending_freq is not None:
+                    await self.broadcast_state()
+                    await asyncio.sleep(0.08)
+                    continue
+
                 if has_tuner and time.time() > self._tune_optimistic_until and (self.state["tuner_tuning"] or (tick % 16 == 8 and not self.state["ptt"])):
                     t_cmd = self._cmd_get_tuner()
                     if t_cmd:
@@ -837,10 +902,10 @@ class BridgeCoordinator:
                             self.active_vfo = hw_vfo
                             self.state["vfo"] = hw_vfo
 
-                elif tick % 4 == 1:
+                elif tick % 4 == 1 and time.time() >= self._mode_optimistic_until:
                     md_resp = await self.serial.execute_command(self.rig.cmd_get_mode(), expect_reply=True)
                     mode = self.rig.parse_mode(md_resp)
-                    if mode:
+                    if mode and time.time() >= self._mode_optimistic_until:
                         self.state["mode"] = mode
 
                 else:

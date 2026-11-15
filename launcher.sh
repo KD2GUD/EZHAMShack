@@ -1,31 +1,32 @@
 #!/usr/bin/env bash
-# EZHAMShack Linux Station Launcher
+# EZHAMShack Linux Station Launcher (v1.0.0)
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_PYTHON="$INSTALL_DIR/.venv/bin/python"
+VENV_DIR="$INSTALL_DIR/.venv"
+VENV_PYTHON="$VENV_DIR/bin/python"
 
-UPDATE_TIMEOUT=5
-DEFAULT_ACTION="L"   # "L" = Launch immediately | "U" = Auto-update on timeout
+UPDATE_TIMEOUT=30
+DEFAULT_ACTION="U"   # "U" = Auto-update GitHub, Python & libraries on timeout | "L" = Launch immediately
 
 clear
 echo "============================================================"
 echo "             EZHAMShack Station Launcher"
+echo "                    Version: 1.0.0"
 echo "============================================================"
 echo "Transceiver Target : AUTO-DETECT"
 echo "Transceiver Port   : AUTO-DETECT"
 echo "Baud Rate          : AUTO-DETECT"
 echo "Bridge WebSockets  : ws://127.0.0.1:8088"
-echo "Hamlib rigctld     : 127.0.0.1:4532 (WSJT-X / JTDX)"
 echo "============================================================"
 echo ""
 
 if [ ! -f "$VENV_PYTHON" ]; then
     echo "[ERROR] Virtual environment (.venv) not found at: $VENV_PYTHON"
-    echo "Run: ./install.sh"
+    echo "Run: chmod +x install.sh && ./install.sh"
     exit 1
 fi
 
-echo "[0/3] Checking environment and system updates..."
+echo "[0/3] Checking environment, GitHub updates, Python & libraries..."
 
 # 1. Silent Internet Connectivity Check (1s timeout)
 ONLINE=0
@@ -36,13 +37,24 @@ fi
 if [ "$ONLINE" -eq 0 ]; then
     echo "  [INFO] Offline mode: No internet detected. Skipping update checks."
 else
-    # 2. Verify Python Runtime Version
+    # 2. Check & Sync Python Runtime Version inside .venv
+    SYS_PY_VER=""
+    if command -v python3 >/dev/null 2>&1; then
+        SYS_PY_VER=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")' 2>/dev/null || true)
+    fi
     PY_VER=$("$VENV_PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')
+
+    if [ -n "$SYS_PY_VER" ] && [ "$SYS_PY_VER" != "$PY_VER" ]; then
+        echo "  [INFO] Upgrading .venv Python runtime ($PY_VER -> $SYS_PY_VER)..."
+        python3 -m venv --upgrade "$VENV_DIR" >/dev/null 2>&1 || true
+        PY_VER=$("$VENV_PYTHON" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}")')
+    fi
+
     if ! "$VENV_PYTHON" -c 'import sys; assert sys.hexversion >= 0x030a0000' >/dev/null 2>&1; then
         echo "  [WARNING] Installed Python is v$PY_VER. EZHAMShack recommends Python 3.10+."
     fi
 
-    # 3. Check Git Repository Updates
+    # 3. Check GitHub Repository Updates
     APP_UPDATE_AVAILABLE=0
     if [ -d "$INSTALL_DIR/.git" ] && command -v git >/dev/null 2>&1; then
         if git -C "$INSTALL_DIR" fetch --quiet >/dev/null 2>&1; then
@@ -60,12 +72,12 @@ else
         echo "   [UPDATE AVAILABLE] A newer version of EZHAMShack was found!"
         echo "  ************************************************************"
         echo ""
-        echo "  Press [U] to apply updates now."
+        echo "  Press [U] to pull GitHub updates & upgrade Python libraries."
         echo "  Press [L] to skip and launch immediately."
-        if [ "$DEFAULT_ACTION" = "L" ]; then
-            echo "  (Defaulting to Launch in ${UPDATE_TIMEOUT} seconds...)"
-        else
+        if [ "$DEFAULT_ACTION" = "U" ]; then
             echo "  (Auto-updating in ${UPDATE_TIMEOUT} seconds...)"
+        else
+            echo "  (Defaulting to Launch in ${UPDATE_TIMEOUT} seconds...)"
         fi
         echo ""
 
@@ -76,9 +88,14 @@ else
 
         if [ "$CHOICE" = "U" ]; then
             echo ""
-            echo "  [1/2] Pulling latest repository commits..."
-            git -C "$INSTALL_DIR" pull --quiet
-            echo "  [2/2] Updating runtime library dependencies..."
+            echo "  [1/3] Pulling latest repository commits from GitHub..."
+            git -C "$INSTALL_DIR" pull --ff-only --quiet || git -C "$INSTALL_DIR" pull --quiet
+            echo "  [2/3] Upgrading Python pip & virtual environment..."
+            if command -v python3 >/dev/null 2>&1; then
+                python3 -m venv --upgrade "$VENV_DIR" >/dev/null 2>&1 || true
+            fi
+            "$VENV_PYTHON" -m pip install --upgrade pip --quiet >/dev/null 2>&1 || true
+            echo "  [3/3] Updating Python runtime libraries..."
             if [ -f "$INSTALL_DIR/requirements.txt" ]; then
                 "$VENV_PYTHON" -m pip install -r "$INSTALL_DIR/requirements.txt" --upgrade --quiet
             else
@@ -90,7 +107,16 @@ else
             echo "  Update skipped by operator. Proceeding to launch..."
         fi
     else
-        echo "  [OK] System up to date (Python $PY_VER | Core & Libraries current)."
+        # Ensure required Python libraries are always present and current
+        if ! "$VENV_PYTHON" -c "import serial, websockets" >/dev/null 2>&1; then
+            echo "  [INFO] Installing missing Python libraries..."
+            if [ -f "$INSTALL_DIR/requirements.txt" ]; then
+                "$VENV_PYTHON" -m pip install -r "$INSTALL_DIR/requirements.txt" --upgrade --quiet
+            else
+                "$VENV_PYTHON" -m pip install pyserial websockets --upgrade --quiet
+            fi
+        fi
+        echo "  [OK] System up to date (Python $PY_VER | GitHub & Libraries current)."
     fi
 fi
 

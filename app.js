@@ -20,6 +20,16 @@ const DEFAULT_PROFILE = {
   antenna: ''
 };
 
+// US Amateur Radio 60m Allocations (FCC Part 97 § 97.303(h) & § 97.313(i), eff. Feb 13, 2026)
+// Channels 1, 2, 4, 5 = 100 W ERP max; 5.3515–5.3665 MHz WRC-15 segment = 9.15 W ERP (15 W EIRP) max
+const US_60M_CHANNELS = [
+  { ch: 1, dialHz: 5330500, centerHz: 5332000, label: 'CH 1', maxErpW: 100, isWrcBand: false },
+  { ch: 2, dialHz: 5346500, centerHz: 5348000, label: 'CH 2', maxErpW: 100, isWrcBand: false },
+  { ch: 3, dialHz: 5357000, centerHz: 5358500, label: 'WRC 15k', maxErpW: 9, isWrcBand: true },
+  { ch: 4, dialHz: 5371500, centerHz: 5373000, label: 'CH 4', maxErpW: 100, isWrcBand: false },
+  { ch: 5, dialHz: 5403500, centerHz: 5405000, label: 'CH 5', maxErpW: 100, isWrcBand: false }
+];
+
 // 5 Transceiver S-Meter Calibration Models
 window.RADIO_METER_PROFILES = {
   yaesu: {
@@ -46,7 +56,6 @@ window.RADIO_METER_PROFILES = {
     unitsPerS: 17.0,
     calculate(v) {
       if (isNaN(v) || v <= this.s0Floor) return { segments: 0, label: 'S0' };
-      // FT-857D 0xE7 returns 0..15 nibble scaled by 17.0 (0..255)
       const rawNibble = Math.max(0, Math.min(15, Math.round(v / 17.0)));
       if (rawNibble === 0) return { segments: 0, label: 'S0' };
       if (rawNibble <= 9) {
@@ -145,6 +154,8 @@ window.appState = {
     tunerTuning: false,
     xcvr: 'Radio',
     rigId: '',
+    minFreqHz: 30000,
+    maxFreqHz: 470000000,
     isMuted: false,
     preMuteVol: 50,
     capabilities: [],
@@ -165,8 +176,19 @@ let pwrLockUntil = 0;
 let volLockUntil = 0;
 let isShuttingDown = false;
 let lastAutoSegmentKey = null;
+let saveStateTimer = null;
+let pre60mQrpPower = null;
+let is60mWrcCapActive = false;
 window.bridgeSocket = null;
 window.subReceiverWidget = null;
+
+window.scheduleSaveState = function() {
+  if (saveStateTimer) clearTimeout(saveStateTimer);
+  saveStateTimer = setTimeout(() => {
+    saveStateTimer = null;
+    window.saveStateToStorage();
+  }, 350);
+};
 
 /* =====================================================================
    PROFILE & CAPABILITY RESOLVER ENGINE
@@ -180,7 +202,6 @@ window.resolveActiveMeterProfile = function() {
   const rigId = (window.appState.telemetry.rigId || '').toLowerCase();
   const xcvr = (window.appState.telemetry.xcvr || '').toUpperCase();
 
-  // Check legacy Yaesu 5-byte binary rigs (FT-857D / FT-817 / FT-897) BEFORE generic FT- match
   if (
     rigId.includes('857') || rigId.includes('817') || rigId.includes('897') ||
     xcvr.includes('857') || xcvr.includes('817') || xcvr.includes('897')
@@ -204,6 +225,18 @@ window.calculateSmeter = function(val) {
   return active.profile.calculate(val);
 };
 
+window.getRigFrequencyBounds = function() {
+  const tel = window.appState.telemetry || {};
+  if (typeof tel.minFreqHz === 'number' && typeof tel.maxFreqHz === 'number' && tel.maxFreqHz > tel.minFreqHz) {
+    return { minHz: tel.minFreqHz, maxHz: tel.maxFreqHz };
+  }
+  const combined = `${tel.rigId || ''} ${tel.xcvr || ''}`.toLowerCase();
+  if (/ts-?2000/.test(combined)) return { minHz: 30000, maxHz: 1300000000 };
+  if (/ic-?7300|ic-?7610|ftdx|ft-?891|ts-?590|ts-?890/.test(combined)) return { minHz: 30000, maxHz: 74800000 };
+  if (/ft-?857|ft-?817|ft-?897/.test(combined)) return { minHz: 100000, maxHz: 470000000 };
+  return { minHz: 30000, maxHz: 470000000 };
+};
+
 window.getRigSupportedBands = function() {
   const tel = window.appState.telemetry || {};
   if (Array.isArray(tel.supported_bands) && tel.supported_bands.length > 0) {
@@ -216,6 +249,7 @@ window.getRigSupportedBands = function() {
   const HF_ONLY = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'];
   const HF_6M = [...HF_ONLY, '6m'];
   const ALL_BAND = [...HF_6M, '2m', '70cm'];
+  const TS2000_BANDS = [...ALL_BAND, '23cm'];
   const VHF_UHF_SHF = ['2m', '70cm', '23cm'];
 
   if (/ic-?9700/.test(combined)) return VHF_UHF_SHF;
@@ -224,7 +258,8 @@ window.getRigSupportedBands = function() {
   if (/ftdx-?(10|101|3000|5000|1200)|ft-?(891|450|950|920|1000)/.test(combined)) return HF_6M;
   if (/ts-?(590|890|990|480|570|870)/.test(combined)) return HF_6M;
   if (/\b(kx2|kx3|k3|k4)\b/.test(combined)) return HF_6M;
-  if (/ft-?(991|857|897|817|818|100)|ic-?(705|7100|7000|706|9100)|ts-?2000/.test(combined)) {
+  if (/ts-?2000/.test(combined)) return TS2000_BANDS;
+  if (/ft-?(991|857|897|817|818|100)|ic-?(705|7100|7000|706|9100)/.test(combined)) {
     return ALL_BAND;
   }
   return null;
@@ -303,21 +338,17 @@ window.updateRigControlAvailability = function() {
   const pwrSupported = window.isRigCapabilitySupported('rf_power');
   const atuSupported = window.isRigCapabilitySupported('tuner');
 
-  // 1. Built-In ATU / Tune Control Group
   const atuContainer = document.getElementById('atuControlGroup');
   if (atuContainer) {
     atuContainer.classList.toggle('opacity-35', !atuSupported);
     atuContainer.classList.toggle('pointer-events-none', !atuSupported);
     atuContainer.classList.toggle('select-none', !atuSupported);
-    if (!atuSupported) {
-      atuContainer.title = 'No built-in antenna tuner on this transceiver';
-    } else {
-      atuContainer.title = 'Toggle built-in ATU bypass/inline or trigger an auto-tune cycle';
-    }
+    atuContainer.title = atuSupported
+      ? 'Toggle built-in ATU bypass/inline or trigger an auto-tune cycle'
+      : 'No built-in antenna tuner on this transceiver';
   }
   window.updateTunerDisplay();
 
-  // 2. AF Volume Control Group (Ghost & Disable when hardware-pot only, e.g. FT-857D)
   const vSlider = document.getElementById('afVolSlider') || document.getElementById('rigVolumeSlider');
   const vDisp = document.getElementById('afVolDisplay') || document.getElementById('rigVolumeLabel') || document.getElementById('rigVolumeDisplay');
   const muteBtn = document.getElementById('btnMute');
@@ -352,7 +383,6 @@ window.updateRigControlAvailability = function() {
     }
   }
 
-  // 3. TX RF Power Control Group (Ghost & Disable when menu-only, e.g. FT-857D)
   const pSlider = document.getElementById('txPwrSlider');
   const pDisp = document.getElementById('txPwrDisplay');
   const pwrContainer =
@@ -388,7 +418,6 @@ window.updateRigControlAvailability = function() {
     }
   }
 
-  // 4. Refresh Satellite Tracker transponder band gating if mounted
   if (typeof window.updateTransponderDisplay === 'function') {
     window.updateTransponderDisplay();
   }
@@ -492,19 +521,18 @@ window.addEventListener('DOMContentLoaded', () => {
     window.syncStickyHeaderOffset();
   });
 
-  // Close dropdowns on outside click
   document.addEventListener('click', (e) => {
     if (!e.target.closest('#presetBtn') && !e.target.closest('#presetDropdown')) {
-      const d = document.getElementById('presetDropdown');
-      if (d) d.classList.add('hidden');
+      document.getElementById('presetDropdown')?.classList.add('hidden');
     }
     if (!e.target.closest('#vfoBandBtn') && !e.target.closest('#bandDropdown')) {
-      const d = document.getElementById('bandDropdown');
-      if (d) d.classList.add('hidden');
+      document.getElementById('bandDropdown')?.classList.add('hidden');
+    }
+    if (!e.target.closest('#vfo60mChBtn') && !e.target.closest('#ch60mDropdown')) {
+      document.getElementById('ch60mDropdown')?.classList.add('hidden');
     }
     if (!e.target.closest('#vfoModeBtn') && !e.target.closest('#modeDropdown')) {
-      const d = document.getElementById('modeDropdown');
-      if (d) d.classList.add('hidden');
+      document.getElementById('modeDropdown')?.classList.add('hidden');
     }
   });
 });
@@ -565,12 +593,156 @@ window.loadStateFromStorage = function() {
 };
 
 /* =====================================================================
-   FCC PART 97 BAND PRIVILEGE ENGINE
+   60M CHANNELIZED HELPERS, POWER COMPLIANCE & FCC PART 97 ENGINE
    ===================================================================== */
+window.is60mWrcSegment = function(freqHz) {
+  const f = parseInt(freqHz, 10);
+  return Boolean(f && f >= 5351500 && f <= 5366500);
+};
+
+window.get60mChannelInfo = function(freqHz) {
+  const f = parseInt(freqHz, 10);
+  if (!f || isNaN(f)) return null;
+  if (f >= 5351500 && f <= 5366500) {
+    return US_60M_CHANNELS[2]; // 5.3515–5.3665 MHz continuous WRC-15 segment (9.15 W ERP max)
+  }
+  for (const entry of US_60M_CHANNELS) {
+    if (entry.isWrcBand) continue;
+    if (Math.abs(f - entry.dialHz) <= 50 || Math.abs(f - entry.centerHz) <= 50) {
+      return entry;
+    }
+  }
+  return null;
+};
+
+window.sync60mPowerCompliance = function(freqHz, notify = true) {
+  const inWrcSegment = window.is60mWrcSegment(freqHz);
+  const pwrSupported = window.isRigCapabilitySupported('rf_power');
+
+  if (inWrcSegment) {
+    const curPwr = window.appState.telemetry.powerTarget ?? 100;
+    if (!is60mWrcCapActive) {
+      is60mWrcCapActive = true;
+      if (curPwr > 9) {
+        pre60mQrpPower = curPwr;
+        if (pwrSupported) {
+          const pSlider = document.getElementById('txPwrSlider');
+          if (pSlider) pSlider.value = 9;
+          window.onTxPowerChange(9);
+          if (notify) {
+            window.showToast('60m WRC-15 Band (5.3515–5.3665 MHz): TX Power set to 9W (9.15W ERP max)');
+          }
+        } else if (notify) {
+          window.showToast('60m WRC-15 Band: Set radio TX power ≤ 9W (9.15W ERP max)');
+        }
+      }
+    }
+  } else if (is60mWrcCapActive) {
+    is60mWrcCapActive = false;
+    if (pre60mQrpPower !== null && pwrSupported) {
+      const restorePwr = pre60mQrpPower;
+      pre60mQrpPower = null;
+      const pSlider = document.getElementById('txPwrSlider');
+      if (pSlider) pSlider.value = restorePwr;
+      window.onTxPowerChange(restorePwr);
+      if (notify) {
+        window.showToast(`Restored TX Power to ${restorePwr}W`);
+      }
+    } else {
+      pre60mQrpPower = null;
+    }
+  }
+};
+
+window.update60mChannelBadge = function() {
+  const wrap = document.getElementById('vfo60mChWrap');
+  const lbl = document.getElementById('vfo60mChLabel');
+  if (!wrap || !lbl) return;
+
+  if (window.appState.vfo.band !== '60m') {
+    wrap.classList.add('hidden');
+    document.getElementById('ch60mDropdown')?.classList.add('hidden');
+    return;
+  }
+
+  wrap.classList.remove('hidden');
+  const chInfo = window.get60mChannelInfo(window.appState.vfo.frequency);
+  if (chInfo) {
+    lbl.innerText = chInfo.label;
+    lbl.className = chInfo.isWrcBand
+      ? 'inline-block w-[48px] text-center text-cyan-300'
+      : 'inline-block w-[48px] text-center text-amber-300';
+  } else {
+    lbl.innerText = 'OFF-CH';
+    lbl.className = 'inline-block w-[48px] text-center text-red-400';
+  }
+};
+
+window.toggle60mDropdown = function(e) {
+  e.stopPropagation();
+  document.getElementById('bandDropdown')?.classList.add('hidden');
+  document.getElementById('modeDropdown')?.classList.add('hidden');
+  document.getElementById('presetDropdown')?.classList.add('hidden');
+  document.getElementById('ch60mDropdown')?.classList.toggle('hidden');
+};
+
+window.select60mChannel = function(chNum) {
+  const chObj = US_60M_CHANNELS.find(c => c.ch === chNum);
+  if (!chObj) return;
+
+  window.appState.vfo.band = '60m';
+  window.appState.vfo.frequency = chObj.dialHz;
+  window.recordBandFrequency('60m', chObj.dialHz);
+
+  const curMode = (window.appState.vfo.mode || '').toUpperCase();
+  const allowed60Modes = ['USB', 'DATA-U', 'CW', 'CW-U', 'CW-L', 'RTTY', 'RTTY-USB'];
+  if (!allowed60Modes.includes(curMode)) {
+    window.appState.vfo.mode = 'USB';
+    if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
+      window.bridgeSocket.send(JSON.stringify({ action: "set_mode", mode: 'USB' }));
+    }
+  }
+
+  const activeSlot = (window.appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
+  window.appState.vfo[activeSlot].band = '60m';
+  window.appState.vfo[activeSlot].frequency = chObj.dialHz;
+  window.appState.vfo[activeSlot].mode = window.appState.vfo.mode;
+
+  tuneLockUntil = Date.now() + 1000;
+  window.updateVfoDisplay();
+  window.scheduleSaveState();
+  document.getElementById('ch60mDropdown')?.classList.add('hidden');
+  window.sendFreqToBridge(chObj.dialHz);
+  window.sync60mPowerCompliance(chObj.dialHz, true);
+
+  if (!chObj.isWrcBand) {
+    window.showToast(`60m ${chObj.label}: ${(chObj.dialHz / 1000000).toFixed(4)} MHz (100W ERP max)`);
+  }
+};
+
 window.checkBandPrivilege = function(freqHz, mode, licClass) {
   if (!freqHz || !licClass || licClass === 'UNRESTRICTED') return { status: 'OK' };
   const mhz = freqHz / 1000000.0;
   const m = (mode || '').toUpperCase();
+
+  // US 60m Channelized & WRC-15 Continuous Band Validation (FCC Part 97 eff. Feb 13, 2026)
+  if (mhz >= 5.33 && mhz <= 5.41) {
+    if (licClass !== 'EXTRA' && licClass !== 'GENERAL') {
+      return { status: 'OOB', reason: '60m requires General or Amateur Extra license' };
+    }
+    const chInfo = window.get60mChannelInfo(freqHz);
+    if (!chInfo) {
+      return { status: 'OOB', reason: 'Off 60m discrete channel or 5.3515–5.3665 MHz segment' };
+    }
+    const allowed60Modes = ['USB', 'DATA-U', 'CW', 'CW-U', 'CW-L', 'RTTY', 'RTTY-USB'];
+    if (!allowed60Modes.includes(m)) {
+      return { status: 'WARN', reason: '60m authorizes USB, Data, or CW only (2.8 kHz max BW)' };
+    }
+    if (chInfo.isWrcBand && (window.appState.telemetry.powerTarget || 0) > 9) {
+      return { status: 'WARN', reason: '60m WRC-15 segment limited to 9.15 W ERP (15 W EIRP)' };
+    }
+    return { status: 'OK' };
+  }
 
   let allowedRanges = [];
 
@@ -584,8 +756,6 @@ window.checkBandPrivilege = function(freqHz, mode, licClass) {
     } else if (licClass === 'TECHNICIAN' || licClass === 'NOVICE') {
       allowedRanges.push({ min: 3525000, max: 3600000 });
     }
-  } else if (mhz >= 5.33 && mhz <= 5.41) {
-    if (licClass === 'EXTRA' || licClass === 'GENERAL') allowedRanges.push({ min: 5330000, max: 5410000 });
   } else if (mhz >= 7.0 && mhz <= 7.3) {
     if (licClass === 'EXTRA') allowedRanges.push({ min: 7000000, max: 7300000 });
     else if (licClass === 'GENERAL') {
@@ -619,10 +789,16 @@ window.checkBandPrivilege = function(freqHz, mode, licClass) {
     else if (licClass === 'TECHNICIAN' || licClass === 'NOVICE') {
       allowedRanges.push({ min: 28000000, max: 28500000 });
     }
-  } else if ((mhz >= 50.0 && mhz <= 54.0) || (mhz >= 144.0 && mhz <= 148.0) || (mhz >= 420.0 && mhz <= 450.0)) {
+  } else if (
+    (mhz >= 50.0 && mhz <= 54.0) ||
+    (mhz >= 144.0 && mhz <= 148.0) ||
+    (mhz >= 420.0 && mhz <= 450.0) ||
+    (mhz >= 1240.0 && mhz <= 1300.0)
+  ) {
     allowedRanges.push({ min: 50000000, max: 54000000 });
     allowedRanges.push({ min: 144000000, max: 148000000 });
     allowedRanges.push({ min: 420000000, max: 450000000 });
+    allowedRanges.push({ min: 1240000000, max: 1300000000 });
   }
 
   const matched = allowedRanges.find(r => freqHz >= r.min && freqHz <= r.max);
@@ -646,7 +822,7 @@ window.checkBandPrivilege = function(freqHz, mode, licClass) {
   } else if (m === 'FM' || m === 'C4FM') {
     bwLow = freqHz - 6000;
     bwHigh = freqHz + 6000;
-  } else if (m === 'CW') {
+  } else if (m === 'CW' || m === 'CW-U' || m === 'CW-L') {
     bwLow = freqHz - 250;
     bwHigh = freqHz + 250;
   }
@@ -664,7 +840,6 @@ window.checkBandPrivilege = function(freqHz, mode, licClass) {
 function parseCityStateFromAddress(addrObj) {
   if (!addrObj) return { city: '', state: '' };
   const line2 = (addrObj.line2 || '').trim();
-  // Callook line2 format: "WATERTOWN, NY 13601"
   const m = line2.match(/^([^,]+),\s*([A-Z]{2})\b/i);
   if (m) {
     return { city: m[1].trim(), state: m[2].trim().toUpperCase() };
@@ -693,7 +868,6 @@ window.runLicenseLookup = async function(notify = true) {
   let foundItuz = '';
   let foundAny = false;
 
-  // 1. Primary FCC / North America lookup via Callook
   try {
     const resp = await fetch(`https://callook.info/${encodeURIComponent(call)}/json`);
     if (resp.ok) {
@@ -726,11 +900,8 @@ window.runLicenseLookup = async function(notify = true) {
         foundCountry = 'USA';
       }
     }
-  } catch (e) {
-    // Fall through to HamDB fallback
-  }
+  } catch (e) {}
 
-  // 2. Fallback / Supplement via HamDB (adds international callsigns, QTH, and DXCC)
   if (!foundAny || !foundGrid || !foundCity) {
     try {
       const hResp = await fetch(`https://api.hamdb.org/v1/${encodeURIComponent(call)}/json/ezshack`);
@@ -738,13 +909,13 @@ window.runLicenseLookup = async function(notify = true) {
         const hData = await hResp.json();
         const rec = hData?.hamdb?.callsign;
         if (rec && rec.call && rec.call !== 'NOT_FOUND') {
-          foundAny = true;
           if (!foundAny && rec.class) {
             const c = rec.class.toUpperCase();
             if (c.includes('E')) mappedClass = 'EXTRA';
             else if (c.includes('G')) mappedClass = 'GENERAL';
             else if (c.includes('N')) mappedClass = 'NOVICE';
           }
+          foundAny = true;
           if (!foundGrid && rec.grid) foundGrid = rec.grid.trim();
           if (!foundCity && rec.addr2) foundCity = rec.addr2.trim();
           if (!foundState && rec.state) foundState = rec.state.trim().toUpperCase();
@@ -761,7 +932,6 @@ window.runLicenseLookup = async function(notify = true) {
     return;
   }
 
-  // Compute Maidenhead grid from Lat/Lon if needed, or Lat/Lon from Maidenhead grid
   if (!foundGrid && !isNaN(foundLat) && !isNaN(foundLon) && typeof window.latLonToMaidenhead === 'function') {
     foundGrid = window.latLonToMaidenhead(foundLat, foundLon) || '';
   }
@@ -773,7 +943,6 @@ window.runLicenseLookup = async function(notify = true) {
     }
   }
 
-  // Estimate CQ Zone and ITU Zone from state / coordinates
   if (typeof window.estimateZonesFromLocation === 'function') {
     const zones = window.estimateZonesFromLocation({
       state: foundState,
@@ -785,7 +954,6 @@ window.runLicenseLookup = async function(notify = true) {
     foundItuz = zones.ituz || '';
   }
 
-  // Apply values to appState.profile and populate all Settings modal inputs
   window.appState.profile.callsign = call;
   window.appState.profile.licenseClass = mappedClass;
   if (foundGrid) window.appState.profile.grid = foundGrid;
@@ -923,6 +1091,7 @@ window.onTxPowerChange = function(val) {
   if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
     window.bridgeSocket.send(JSON.stringify({ action: "set_power", power: pwr }));
   }
+  window.updateVfoDisplay();
 };
 
 window.setQuickPower = function(val) {
@@ -1010,6 +1179,12 @@ window.connectBridgeWebSocket = function() {
           if (Array.isArray(data.supported_bands)) {
             window.appState.telemetry.supported_bands = data.supported_bands;
           }
+          if (typeof data.min_freq_hz === 'number') {
+            window.appState.telemetry.minFreqHz = data.min_freq_hz;
+          }
+          if (typeof data.max_freq_hz === 'number') {
+            window.appState.telemetry.maxFreqHz = data.max_freq_hz;
+          }
           if (data.tuner_enabled !== undefined) {
             window.appState.telemetry.tunerEnabled = Boolean(data.tuner_enabled);
           }
@@ -1035,13 +1210,13 @@ window.connectBridgeWebSocket = function() {
 
             window.recordBandFrequency(bandName, data.frequency);
             window.applySubBandAutoMode(data.frequency, false);
+            window.sync60mPowerCompliance(data.frequency, false);
             window.updateVfoDisplay();
           }
 
           window.updateMeterDisplay(data);
           window.updateRigLinkStatus(true, "RADIO LIVE");
 
-          // Dispatch Sub-Receiver Telemetry to Widgets and Event Bus
           if (data.sub_rx !== undefined) {
             window.appState.telemetry.subRx = data.sub_rx;
             if (window.subReceiverWidget && typeof window.subReceiverWidget.update === 'function') {
@@ -1124,6 +1299,7 @@ window.calculateBand = function(freqHz) {
   if (mhz >= 50.0 && mhz <= 54.0) return "6m";
   if (mhz >= 144.0 && mhz <= 148.0) return "2m";
   if (mhz >= 420.0 && mhz <= 450.0) return "70cm";
+  if (mhz >= 1240.0 && mhz <= 1300.0) return "23cm";
   return "--m";
 };
 
@@ -1201,6 +1377,10 @@ window.getSubBandSegment = function(freqHz) {
     else if (f <= 432075000) mode = 'DATA-U';
     else if (f < 432300000) mode = 'USB';
     else mode = 'FM';
+  } else if (band === '23cm') {
+    if (f < 1296080000) mode = 'CW';
+    else if (f <= 1296120000) mode = 'USB';
+    else mode = 'FM';
   }
 
   return { key: `${band}:${mode || 'NONE'}`, band, mode };
@@ -1210,13 +1390,11 @@ window.applySubBandAutoMode = function(freqHz, allowSwitch = true) {
   const seg = window.getSubBandSegment(freqHz);
   if (!seg) return null;
 
-  // On initial radio connect, seed the current segment without overriding the rig's active mode
   if (lastAutoSegmentKey === null) {
     lastAutoSegmentKey = seg.key;
     return null;
   }
 
-  // Only fire once when crossing a sub-band segment boundary
   if (seg.key === lastAutoSegmentKey) {
     return null;
   }
@@ -1295,7 +1473,6 @@ window.executeStationShutdown = function() {
       if (window.bridgeSocket) window.bridgeSocket.close();
     } catch (e) {}
     window.close();
-    // Secondary fallback for browsers requiring self-target handle
     try {
       window.open('', '_self');
       window.close();
@@ -1328,10 +1505,12 @@ window.setVfo = function(vfoId) {
   if (target.frequency) {
     const seg = window.getSubBandSegment(target.frequency);
     if (seg) lastAutoSegmentKey = seg.key;
+    window.sync60mPowerCompliance(target.frequency, true);
   }
 
+  tuneLockUntil = Date.now() + 1000;
   window.updateVfoDisplay();
-  window.saveStateToStorage();
+  window.scheduleSaveState();
 
   if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
     window.bridgeSocket.send(JSON.stringify({ action: "set_vfo", vfo: vfoId }));
@@ -1363,8 +1542,9 @@ window.formatWeightLabel = function(w) {
 
 window.tuneDigit = function(weight, direction) {
   if (!window.appState.vfo.frequency) return;
+  const bounds = window.getRigFrequencyBounds();
   const delta = weight * direction;
-  let newFreq = Math.max(100000, Math.min(450000000, window.appState.vfo.frequency + delta));
+  let newFreq = Math.max(bounds.minHz, Math.min(bounds.maxHz, window.appState.vfo.frequency + delta));
   const bandName = window.calculateBand(newFreq);
 
   window.appState.vfo.frequency = newFreq;
@@ -1376,11 +1556,12 @@ window.tuneDigit = function(weight, direction) {
 
   window.recordBandFrequency(bandName, newFreq);
   const autoSwitchedMode = window.applySubBandAutoMode(newFreq, true);
+  window.sync60mPowerCompliance(newFreq, true);
 
-  tuneLockUntil = Date.now() + 800;
+  tuneLockUntil = Date.now() + 1000;
 
   window.updateVfoDisplay();
-  window.saveStateToStorage();
+  window.scheduleSaveState();
   window.sendFreqToBridge(newFreq);
 
   if (autoSwitchedMode) {
@@ -1430,14 +1611,15 @@ window.renderVfoDigits = function(freqHz) {
   const khzVal = Math.floor((f % 1000000) / 1000);
   const hzVal = f % 1000;
 
-  const mhzStr = String(mhzVal).padStart(3, '0');
+  const mhzDigits = mhzVal >= 1000 ? 4 : 3;
+  const mhzStr = String(mhzVal).padStart(mhzDigits, '0');
   const khzStr = String(khzVal).padStart(3, '0');
   const hzStr = String(hzVal).padStart(3, '0');
 
   let html = '';
 
-  for (let i = 0; i < 3; i++) {
-    const power = 3 - 1 - i;
+  for (let i = 0; i < mhzDigits; i++) {
+    const power = mhzDigits - 1 - i;
     const weight = Math.pow(10, power + 6);
     html += window.buildDigitColumn(mhzStr[i], weight, colorClass);
   }
@@ -1462,6 +1644,7 @@ window.renderVfoDigits = function(freqHz) {
 window.toggleBandDropdown = function(e) {
   e.stopPropagation();
   document.getElementById('modeDropdown')?.classList.add('hidden');
+  document.getElementById('ch60mDropdown')?.classList.add('hidden');
   document.getElementById('presetDropdown')?.classList.add('hidden');
   document.getElementById('bandDropdown')?.classList.toggle('hidden');
 };
@@ -1469,37 +1652,51 @@ window.toggleBandDropdown = function(e) {
 window.toggleModeDropdown = function(e) {
   e.stopPropagation();
   document.getElementById('bandDropdown')?.classList.add('hidden');
+  document.getElementById('ch60mDropdown')?.classList.add('hidden');
   document.getElementById('presetDropdown')?.classList.add('hidden');
   document.getElementById('modeDropdown')?.classList.toggle('hidden');
 };
 
 window.selectBand = function(bandName, defaultFreq) {
+  const bounds = window.getRigFrequencyBounds();
   const savedFreq = window.appState.bandFrequencies?.[bandName];
-  const targetFreq = (savedFreq && savedFreq > 0) ? savedFreq : defaultFreq;
+  const rawTarget = (savedFreq && savedFreq > 0) ? savedFreq : defaultFreq;
   const usedSaved = Boolean(savedFreq && savedFreq > 0);
 
+  if (rawTarget && (rawTarget > bounds.maxHz || rawTarget < bounds.minHz)) {
+    const rigLabel = window.appState.telemetry.xcvr || 'Connected rig';
+    window.showToast(`${rigLabel} does not cover ${bandName} (${(rawTarget / 1000000).toFixed(1)} MHz)`);
+    document.getElementById('bandDropdown')?.classList.add('hidden');
+    return;
+  }
+
   window.appState.vfo.band = bandName;
-  if (targetFreq) {
-    window.appState.vfo.frequency = targetFreq;
-    window.recordBandFrequency(bandName, targetFreq);
+  if (rawTarget) {
+    window.appState.vfo.frequency = rawTarget;
+    window.recordBandFrequency(bandName, rawTarget);
   }
   const activeSlot = (window.appState.vfo.active || 'A') === 'A' ? 'vfoA' : 'vfoB';
   window.appState.vfo[activeSlot].band = bandName;
   window.appState.vfo[activeSlot].frequency = window.appState.vfo.frequency;
 
-  const autoSwitchedMode = targetFreq ? window.applySubBandAutoMode(targetFreq, true) : null;
+  const autoSwitchedMode = rawTarget ? window.applySubBandAutoMode(rawTarget, true) : null;
+  if (rawTarget) {
+    window.sync60mPowerCompliance(rawTarget, true);
+  }
 
-  tuneLockUntil = Date.now() + 800;
+  tuneLockUntil = Date.now() + 1000;
 
   window.updateVfoDisplay();
-  window.saveStateToStorage();
+  window.scheduleSaveState();
   document.getElementById('bandDropdown')?.classList.add('hidden');
   if (window.appState.vfo.frequency) window.sendFreqToBridge(window.appState.vfo.frequency);
 
-  const mhzLabel = (window.appState.vfo.frequency / 1000000).toFixed(3);
-  const modeNote = autoSwitchedMode ? ` [${autoSwitchedMode}]` : '';
-  const memNote = usedSaved ? ' (Last Used)' : '';
-  window.showToast(`${bandName}: ${mhzLabel} MHz${modeNote}${memNote}`);
+  if (!window.is60mWrcSegment(window.appState.vfo.frequency)) {
+    const mhzLabel = (window.appState.vfo.frequency / 1000000).toFixed(3);
+    const modeNote = autoSwitchedMode ? ` [${autoSwitchedMode}]` : '';
+    const memNote = usedSaved ? ' (Last Used)' : '';
+    window.showToast(`${bandName}: ${mhzLabel} MHz${modeNote}${memNote}`);
+  }
 };
 
 window.selectMode = function(modeName) {
@@ -1510,7 +1707,7 @@ window.selectMode = function(modeName) {
   tuneLockUntil = Date.now() + 800;
 
   window.updateVfoDisplay();
-  window.saveStateToStorage();
+  window.scheduleSaveState();
   document.getElementById('modeDropdown')?.classList.add('hidden');
 
   if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
@@ -1528,6 +1725,7 @@ window.updateVfoDisplay = function() {
   if (bandElem) bandElem.innerText = window.appState.vfo.band;
   const modeElem = document.getElementById('vfoMode');
   if (modeElem) modeElem.innerText = window.appState.vfo.mode;
+  window.update60mChannelBadge();
   window.updateVfoButtons();
 };
 
@@ -1802,18 +2000,15 @@ window.purgeAdifLogFile = function() {
     return;
   }
 
-  // 1. Tell bridge daemon to wipe shack_log.adi on disk
   if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
     window.bridgeSocket.send(JSON.stringify({ action: "clear_adif_log" }));
   }
 
-  // 2. Wipe memory & browser storage
   window.appState.qsos = [];
   if (typeof window.saveStateToStorage === 'function') {
     window.saveStateToStorage();
   }
 
-  // 3. Clear table UI
   if (typeof window.renderQsoTable === 'function') {
     window.renderQsoTable();
   }

@@ -5,13 +5,12 @@ title EZHAMShack Station Launcher
 cls
 echo ============================================================
 echo              EZHAMShack Station Launcher
-echo                    Version: 1.0.1
+echo                    Version: 1.0.0
 echo ============================================================
 echo Transceiver Target : AUTO-DETECT
 echo Transceiver Port   : AUTO-DETECT
 echo Baud Rate          : AUTO-DETECT
 echo Bridge WebSockets  : ws://127.0.0.1:8088
-echo Hamlib rigctld     : 127.0.0.1:4532 (WSJT-X / JTDX)
 echo ============================================================
 echo.
 
@@ -28,15 +27,10 @@ exit /b 1
 :: ============================================================
 :: UPDATER & VERSION VALIDATION ENGINE
 :: ============================================================
-:: Timer countdown in seconds before default action fires
-set "UPDATE_TIMEOUT=5"
+set "UPDATE_TIMEOUT=30"
+set "DEFAULT_ACTION=U"
 
-:: DEFAULT ACTION on timer expiration:
-::   "L" = Launch immediately without updating (fast operation)
-::   "U" = Automatically apply updates when countdown hits zero
-set "DEFAULT_ACTION=L"
-
-echo [0/3] Checking environment and system updates...
+echo [0/3] Checking environment, GitHub updates, Python ^& libraries...
 
 :: 1. Silent Internet Connectivity Check (800ms max timeout)
 ping -n 1 -w 800 1.1.1.1 >nul 2>&1
@@ -57,7 +51,7 @@ if !ERRORLEVEL! NEQ 0 (
     echo   [WARNING] Installed Python is v!PY_VER!. EZHAMShack recommends Python 3.10+.
 )
 
-:: 3. Check EZHAMShack Core Repository Updates (Git)
+:: 3. Check EZHAMShack Core Repository Updates (GitHub)
 set "APP_UPDATE_AVAILABLE=0"
 if not exist "%~dp0.git" goto :EVAL_UPDATE
 
@@ -85,23 +79,25 @@ if "!APP_UPDATE_AVAILABLE!"=="1" (
     echo    [UPDATE AVAILABLE] A newer version of EZHAMShack was found!
     echo   ************************************************************
     echo.
-    if "!DEFAULT_ACTION!"=="L" (
-        echo   Press [U] to apply updates now.
+    if "!DEFAULT_ACTION!"=="U" (
+        echo   Press [U] to pull GitHub updates ^& upgrade Python libraries.
         echo   Press [L] to skip and launch immediately.
-        echo   ^(Defaulting to Launch in !UPDATE_TIMEOUT! seconds...^)
+        echo   ^(Auto-updating in !UPDATE_TIMEOUT! seconds...^)
     ) else (
         echo   Press [U] to apply updates now.
         echo   Press [L] to skip and launch immediately.
-        echo   ^(Auto-updating in !UPDATE_TIMEOUT! seconds...^)
+        echo   ^(Defaulting to Launch in !UPDATE_TIMEOUT! seconds...^)
     )
     echo.
 
     choice /C UL /T !UPDATE_TIMEOUT! /D !DEFAULT_ACTION! /M "Select option"
     if !ERRORLEVEL! EQU 1 (
         echo.
-        echo   [1/2] Pulling latest repository commits...
-        git -C "%~dp0." pull --quiet
-        echo   [2/2] Updating runtime library dependencies...
+        echo   [1/3] Pulling latest repository commits from GitHub...
+        git -C "%~dp0." pull --ff-only --quiet 2>nul || git -C "%~dp0." pull --quiet
+        echo   [2/3] Upgrading Python pip...
+        "%VENV_PYTHON%" -m pip install --upgrade pip --quiet >nul 2>&1
+        echo   [3/3] Updating runtime library dependencies...
         if exist "%~dp0requirements.txt" (
             "%VENV_PYTHON%" -m pip install -r "%~dp0requirements.txt" --upgrade --quiet
         ) else (
@@ -113,7 +109,16 @@ if "!APP_UPDATE_AVAILABLE!"=="1" (
         echo   Update skipped by operator. Proceeding to launch...
     )
 ) else (
-    echo   [OK] System up to date ^(Python !PY_VER! ^| Core ^& Libraries current^).
+    "%VENV_PYTHON%" -c "import serial, websockets" >nul 2>&1
+    if !ERRORLEVEL! NEQ 0 (
+        echo   [INFO] Installing missing Python libraries...
+        if exist "%~dp0requirements.txt" (
+            "%VENV_PYTHON%" -m pip install -r "%~dp0requirements.txt" --upgrade --quiet
+        ) else (
+            "%VENV_PYTHON%" -m pip install pyserial websockets --upgrade --quiet
+        )
+    )
+    echo   [OK] System up to date ^(Python !PY_VER! ^| GitHub ^& Libraries current^).
 )
 
 :RUN

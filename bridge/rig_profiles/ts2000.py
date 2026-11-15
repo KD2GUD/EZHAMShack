@@ -1,9 +1,10 @@
 """
 bridge/rig_profiles/ts2000.py
 Kenwood TS-2000 CAT Driver Profile.
-Standard Kenwood CAT with Sub-Receiver (VHF/UHF Dual Watch) Support.
+Standard Kenwood CAT with Sub-Receiver (VHF/UHF Dual Watch) & 23cm Support.
 Main: FA/FB, MD, IF, SM0, PC, AG0, SP, FR/FT, TO/TN.
 Sub : FC (Freq), SB (Power), MU (Mute), SM1 (S-Meter), AG1 (AF Gain).
+Frequency Range: 30 kHz - 1300 MHz (HF / 6m / 2m / 70cm / 23cm w/ UT-20).
 """
 
 from typing import Optional, Tuple, List
@@ -59,6 +60,11 @@ def get_kenwood_tone_idx(hz: float) -> str:
 class TS2000(BaseRig):
     rig_id = "ts2000"
     supports_sub_rx: bool = True
+    min_freq_hz: int = 30_000
+    max_freq_hz: int = 1_300_000_000
+    supported_bands: List[str] = [
+        "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm", "23cm"
+    ]
 
     @property
     def name(self) -> str:
@@ -86,7 +92,8 @@ class TS2000(BaseRig):
 
     def cmd_set_frequency(self, freq_hz: int, vfo: str = "A") -> bytes:
         prefix = "FA" if vfo.upper() == "A" else "FB"
-        return f"{prefix}{int(freq_hz):011d};".encode("ascii")
+        clamped = max(self.min_freq_hz, min(self.max_freq_hz, int(freq_hz)))
+        return f"{prefix}{clamped:011d};".encode("ascii")
 
     def cmd_set_vfo(self, vfo: str) -> bytes:
         return b"FR0;FT0;" if vfo.upper().strip() == "A" else b"FR1;FT1;"
