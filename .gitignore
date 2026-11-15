@@ -1,3 +1,7 @@
 /.venv
 backups/
 website/
+logs/*.adi
+*.adi
+tools/
+__pycache__/
