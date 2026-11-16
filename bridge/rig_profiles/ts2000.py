@@ -1,10 +1,9 @@
 """
 bridge/rig_profiles/ts2000.py
 Kenwood TS-2000 CAT Driver Profile.
-Standard Kenwood CAT with Sub-Receiver (VHF/UHF Dual Watch) & 23cm Support.
-Main: FA/FB, MD, IF, SM0, PC, AG0, SP, FR/FT, TO/TN.
-Sub : FC (Freq), SB (Power), MU (Mute), SM1 (S-Meter), AG1 (AF Gain).
-Frequency Range: 30 kHz - 1300 MHz (HF / 6m / 2m / 70cm / 23cm w/ UT-20).
+Standard Kenwood CAT with Sub-Receiver (VHF/UHF Dual Watch) & Optional UT-20 23cm Support.
+Main: FA/FB, MD, IF, SM0, PC, AG0, SP, FR/FT, TO/TN (30 kHz - 450 MHz; 1300 MHz w/ UT-20).
+Sub : FC (Freq), SB (Power), MU (Mute), SM1 (S-Meter), AG1 (AF Gain) (2m / 70cm FM & AM).
 """
 
 from typing import Optional, Tuple, List
@@ -45,6 +44,11 @@ KENWOOD_CTCSS_TABLE = [
     203.5, 206.5, 210.7, 218.1, 225.7, 229.1, 233.6, 241.8, 250.3, 254.1
 ]
 
+BASE_SUPPORTED_BANDS: List[str] = [
+    "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"
+]
+UT20_SUPPORTED_BANDS: List[str] = BASE_SUPPORTED_BANDS + ["23cm"]
+
 
 def get_kenwood_tone_idx(hz: float) -> str:
     closest_idx = 0
@@ -54,17 +58,23 @@ def get_kenwood_tone_idx(hz: float) -> str:
         if diff < min_diff:
             min_diff = diff
             closest_idx = i
-    return f"{closest_idx + 1:02d}"
+    # Kenwood TS-2000 TN command accepts 01..42
+    code_num = min(42, max(1, closest_idx + 1))
+    return f"{code_num:02d}"
 
 
 class TS2000(BaseRig):
     rig_id = "ts2000"
     supports_sub_rx: bool = True
     min_freq_hz: int = 30_000
-    max_freq_hz: int = 1_300_000_000
-    supported_bands: List[str] = [
-        "160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm", "23cm"
-    ]
+    max_freq_hz: int = 450_000_000
+    ut20_installed: bool = False
+    supported_bands: List[str] = list(BASE_SUPPORTED_BANDS)
+
+    def set_ut20_installed(self, installed: bool) -> None:
+        self.ut20_installed = bool(installed)
+        self.max_freq_hz = 1_300_000_000 if self.ut20_installed else 450_000_000
+        self.supported_bands = list(UT20_SUPPORTED_BANDS if self.ut20_installed else BASE_SUPPORTED_BANDS)
 
     @property
     def name(self) -> str:
@@ -80,12 +90,14 @@ class TS2000(BaseRig):
         return b"FA;" if vfo.upper() == "A" else b"FB;"
 
     def parse_frequency(self, response: bytes) -> Optional[int]:
+        """Parses Main VFO A/B replies (FA/FB only) so Sub-RX FC frames never cross-talk."""
         try:
             raw = response.decode("ascii", errors="ignore").strip()
-            if (raw.startswith("FA") or raw.startswith("FB") or raw.startswith("FC")) and raw.endswith(";"):
-                digits = raw[2:-1]
-                if digits.isdigit():
-                    return int(digits)
+            for part in raw.split(";"):
+                if (part.startswith("FA") or part.startswith("FB")) and len(part) >= 11:
+                    digits = part[2:]
+                    if digits.isdigit():
+                        return int(digits)
         except Exception:
             pass
         return None
@@ -198,13 +210,27 @@ class TS2000(BaseRig):
         scaled = max(0, min(255, int((level_0_100 / 100.0) * 255)))
         return f"AG0{scaled:03d};".encode("ascii")
 
-    # --- Sub-Receiver (VHF/UHF Dual Watch) ---
+    # --- Sub-Receiver (2m / 70cm FM & AM Dual Watch) ---
 
     def cmd_get_sub_frequency(self) -> bytes:
         return b"FC;"
 
+    def parse_sub_frequency(self, response: bytes) -> Optional[int]:
+        """Parses Sub-Receiver frequency replies (FC only)."""
+        try:
+            raw = response.decode("ascii", errors="ignore").strip()
+            for part in raw.split(";"):
+                if part.startswith("FC") and len(part) >= 11:
+                    digits = part[2:]
+                    if digits.isdigit():
+                        return int(digits)
+        except Exception:
+            pass
+        return None
+
     def cmd_set_sub_frequency(self, freq_hz: int) -> bytes:
-        return f"FC{int(freq_hz):011d};".encode("ascii")
+        clamped = max(144_000_000, min(450_000_000, int(freq_hz)))
+        return f"FC{clamped:011d};".encode("ascii")
 
     def cmd_get_sub_power(self) -> bytes:
         return b"SB;"
@@ -254,31 +280,40 @@ class TS2000(BaseRig):
         ops: List[Tuple[bytes, float]] = []
 
         ops.append((b"SP0;", 0.150))
-        ops.append((b"FR0;", 0.150))
-        ops.append((self.cmd_set_frequency(rx_freq_hz, vfo="A"), 0.250))
-        ops.append((self.cmd_set_mode(rx_mode), 0.200))
 
         if has_uplink:
+            # Select VFO B (TX) first so mode and CTCSS tone are programmed onto VFO B
+            ops.append((b"FR1;", 0.200))
             ops.append((self.cmd_set_frequency(tx_freq_hz, vfo="B"), 0.250))
+            ops.append((self.cmd_set_mode(tx_mode), 0.250))
 
             if tone_hz and tone_hz > 0:
                 tone_code = get_kenwood_tone_idx(tone_hz)
-                ops.append((f"TN{tone_code};".encode("ascii"), 0.150))
-                ops.append((b"TO1;", 0.150))
+                ops.append((b"TO1;", 0.200))
+                ops.append((f"TN{tone_code};".encode("ascii"), 0.200))
             else:
                 ops.append((b"TO0;", 0.150))
 
+        # Switch back to VFO A (RX) and configure downlink
+        ops.append((b"FR0;", 0.200))
+        ops.append((self.cmd_set_frequency(rx_freq_hz, vfo="A"), 0.250))
+        ops.append((self.cmd_set_mode(rx_mode), 0.250))
+        ops.append((b"TO0;", 0.150))
+
+        if has_uplink:
             ops.append((b"FT1;", 0.150))
             ops.append((b"SP1;", 0.200))
         else:
             ops.append((b"FT0;", 0.150))
-            ops.append((b"TO0;", 0.150))
 
         return ops
 
     def cmd_disengage_satellite(self) -> List[Tuple[bytes, float]]:
         return [
             (b"SP0;", 0.150),
+            (b"FR1;", 0.150),
+            (b"TO0;", 0.150),
+            (b"FR0;", 0.150),
             (b"FT0;", 0.150),
-            (b"TO0;", 0.150)
+            (b"TO0;", 0.150),
         ]

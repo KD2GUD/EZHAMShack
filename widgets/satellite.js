@@ -164,6 +164,7 @@ let currentCalculatedDoppler70cm = 0;
 
 let activeTrackedTransponder = null;
 let isTuningInProgress = false;
+let lastTransponderRenderKey = '';
 
 // Audible Alert State & Web Audio Context
 let audioAlertsEnabled = (localStorage.getItem('EZSHACK_SAT_AUDIO_ALERT') === 'true');
@@ -779,12 +780,12 @@ window.tuneRigToTransponder = function(transponderIdx) {
   }
 
   if (typeof tuneLockUntil !== 'undefined') {
-    tuneLockUntil = Date.now() + 2500;
+    tuneLockUntil = Date.now() + 2800;
   }
 
   setTimeout(() => {
     isTuningInProgress = false;
-  }, 2000);
+  }, 2400);
 
   if (window.appState && window.appState.vfo) {
     window.appState.vfo.frequency = targetRxFreq;
@@ -793,7 +794,7 @@ window.tuneRigToTransponder = function(transponderIdx) {
     if (typeof window.updateVfoDisplay === 'function') window.updateVfoDisplay();
   }
 
-  window.updateTransponderDisplay();
+  window.updateTransponderDisplay(true);
 
   if (typeof window.showToast === 'function') {
     window.showToast(`🛰️ ${sat.name} Armed. Doppler Tracking Active.`);
@@ -813,7 +814,7 @@ window.stopTrackingTransponder = function() {
     if (typeof window.updateVfoDisplay === 'function') window.updateVfoDisplay();
   }
 
-  window.updateTransponderDisplay();
+  window.updateTransponderDisplay(true);
 
   if (typeof window.showToast === 'function') {
     window.showToast('Satellite CAT Tracking & Split Disengaged.');
@@ -981,16 +982,16 @@ window.initSatelliteTracker = function(instanceId) {
   activeSatrec = null;
   userHasManuallySelected = false;
   isTuningInProgress = false;
+  lastTransponderRenderKey = '';
 
-  window.updateTransponderDisplay();
+  window.updateTransponderDisplay(true);
 
-  // Automatic Staleness Check: Check if TLEs are older than TLE_MAX_AGE_DAYS
   const lastSync = parseInt(localStorage.getItem('EZSHACK_SAT_LAST_SYNC') || '0', 10);
   const ageMs = Date.now() - lastSync;
   const maxAgeMs = TLE_MAX_AGE_DAYS * 24 * 60 * 60 * 1000;
 
   if (isNaN(lastSync) || ageMs > maxAgeMs) {
-    window.fetchLiveTLEs(false); // Quiet background refresh
+    window.fetchLiveTLEs(false);
   }
 
   ensureSatelliteLibrary(() => {
@@ -1008,7 +1009,7 @@ window.rescanAndPickNext = function() {
   if (obsCoords) {
     userHasManuallySelected = false;
     scanAndRankAllSatellites(obsCoords, true);
-    window.updateTransponderDisplay();
+    window.updateTransponderDisplay(true);
     window.runSatelliteCalculation();
   }
 };
@@ -1020,7 +1021,8 @@ window.onSatelliteSelect = function(satId, isUserAction = false) {
   selectedSatId = satId;
   cachedNextPass = catalogPassRankings[satId]?.pass || null;
   activeSatrec = null;
-  window.updateTransponderDisplay();
+  lastTransponderRenderKey = '';
+  window.updateTransponderDisplay(true);
   ensureSatelliteLibrary(() => {
     window.runSatelliteCalculation();
   });
@@ -1047,7 +1049,7 @@ window.filterSatellites = function(filterKey) {
   }
 };
 
-window.updateTransponderDisplay = function() {
+window.updateTransponderDisplay = function(forceRebuild = false) {
   const container = document.getElementById('satTransponderList');
   if (!container) return;
 
@@ -1055,18 +1057,25 @@ window.updateTransponderDisplay = function() {
   if (!sat) return;
 
   const missingSet = new Set();
-  sat.transponders.forEach(t => {
+  const rowStates = sat.transponders.map((t, idx) => {
     const chk = checkTransponderBandSupport(t);
     if (!chk.supported) {
       chk.missingBands.forEach(b => missingSet.add(b));
     }
+    const isTracked = Boolean(
+      activeTrackedTransponder &&
+      activeTrackedTransponder.satId === sat.id &&
+      activeTrackedTransponder.idx === idx
+    );
+    return { chk, isTracked };
   });
+
+  const telemetry = (window.appState && window.appState.telemetry) ? window.appState.telemetry : {};
+  const rigLabel = telemetry.xcvr || telemetry.rigId || 'Active Rig';
 
   const gateBadge = document.getElementById('satBandGateBadge');
   if (gateBadge) {
     if (missingSet.size > 0) {
-      const telemetry = (window.appState && window.appState.telemetry) ? window.appState.telemetry : {};
-      const rigLabel = telemetry.xcvr || telemetry.rigId || 'Active Rig';
       gateBadge.innerText = `⊘ ${rigLabel}: No ${Array.from(missingSet).join('/')}`;
       gateBadge.title = `${rigLabel} lacks ${Array.from(missingSet).join(' / ')} band coverage — Tune & Sync disabled`;
       gateBadge.classList.remove('hidden');
@@ -1075,12 +1084,30 @@ window.updateTransponderDisplay = function() {
     }
   }
 
+  // Only rebuild the DOM when structure/buttons actually change — never on 180ms telemetry ticks!
+  const renderKey = [
+    sat.id,
+    rigLabel,
+    ...rowStates.map((st, i) => `${i}:${st.isTracked ? 1 : 0}:${st.chk.supported ? 1 : 0}`)
+  ].join('|');
+
+  if (!forceRebuild && container.children.length === sat.transponders.length && renderKey === lastTransponderRenderKey) {
+    sat.transponders.forEach((t, idx) => {
+      const specificDop = window.calculateSpecificDoppler(t.downlink);
+      const correctedDlMhz = ((t.downlink + specificDop) / 1000000.0).toFixed(4);
+      const rxEl = document.getElementById(`satTpRx-${idx}`);
+      const dopEl = document.getElementById(`satTpDop-${idx}`);
+      if (rxEl) rxEl.textContent = `${correctedDlMhz} MHz`;
+      if (dopEl) dopEl.textContent = `(${specificDop >= 0 ? '+' : ''}${specificDop} Hz)`;
+    });
+    return;
+  }
+
+  lastTransponderRenderKey = renderKey;
+
   container.innerHTML = sat.transponders.map((t, idx) => {
     const isLinear = ['USB', 'LSB', 'CW', 'CW-U', 'CW-L'].includes(t.mode);
-    const isCurrentlyTracked = activeTrackedTransponder && 
-                               activeTrackedTransponder.satId === sat.id && 
-                               activeTrackedTransponder.idx === idx;
-    const bandCheck = checkTransponderBandSupport(t);
+    const { chk: bandCheck, isTracked: isCurrentlyTracked } = rowStates[idx];
 
     const ulMhz = t.uplink > 0 ? (t.uplink / 1000000.0).toFixed(4) : '---';
     const specificDop = window.calculateSpecificDoppler(t.downlink);
@@ -1091,7 +1118,7 @@ window.updateTransponderDisplay = function() {
     let actionBtnHtml = '';
     if (isCurrentlyTracked) {
       actionBtnHtml = `
-        <button onclick="window.stopTrackingTransponder()" class="px-2 py-1 bg-red-950 hover:bg-red-900 border border-red-800 text-red-300 font-bold rounded text-[10px] transition" title="Disengage Split and disconnect live CAT tracking">
+        <button type="button" onclick="window.stopTrackingTransponder()" class="px-2 py-1 bg-red-950 hover:bg-red-900 border border-red-800 text-red-300 font-bold rounded text-[10px] transition cursor-pointer" title="Disengage Split and disconnect live CAT tracking">
           ⏹ Disengage
         </button>
       `;
@@ -1104,7 +1131,7 @@ window.updateTransponderDisplay = function() {
       `;
     } else {
       actionBtnHtml = `
-        <button onclick="window.tuneRigToTransponder(${idx})" class="px-2 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 font-bold rounded text-[10px] transition" title="Tune VFO A/B, arm Split, and lock Doppler">
+        <button type="button" onclick="window.tuneRigToTransponder(${idx})" class="px-2 py-1 bg-cyan-950 hover:bg-cyan-900 border border-cyan-800 text-cyan-400 font-bold rounded text-[10px] transition cursor-pointer" title="Tune VFO A/B, arm Split, and lock Doppler">
           📻 Tune & Sync
         </button>
       `;
@@ -1116,10 +1143,10 @@ window.updateTransponderDisplay = function() {
           <div class="font-bold text-slate-200 flex items-center gap-1.5">
             <span>${t.name}</span>
             <span class="text-[9px] px-1 py-0.5 rounded ${isLinear ? 'bg-purple-950 text-purple-300 border border-purple-800' : 'bg-amber-950 text-amber-300 border border-amber-800'}">${t.mode}</span>
-            ${isCurrentlyTracked ? '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800 animate-pulse">LIVE DOPPLER CAT</span>' : ''}
+            ${isCurrentlyTracked ? '<span class="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-800">LIVE DOPPLER CAT</span>' : ''}
           </div>
           <div class="text-[10px] text-slate-400 flex flex-wrap gap-2 mt-0.5">
-            <span>RX (VFO A): <b class="${isCurrentlyTracked ? 'text-emerald-400' : 'text-cyan-400'}">${correctedDlMhz} MHz</b> <span class="text-[9px] text-amber-400">(${specificDop >= 0 ? '+' : ''}${specificDop} Hz)</span></span>
+            <span>RX (VFO A): <b id="satTpRx-${idx}" class="${isCurrentlyTracked ? 'text-emerald-400' : 'text-cyan-400'}">${correctedDlMhz} MHz</b> <span id="satTpDop-${idx}" class="text-[9px] text-amber-400">(${specificDop >= 0 ? '+' : ''}${specificDop} Hz)</span></span>
             <span>TX (VFO B): <b class="text-amber-400">${ulMhz} MHz</b></span>
             <span>PL: <b class="${toneHz > 0 ? 'text-cyan-300' : 'text-slate-400'}">${t.tone}</b></span>
           </div>
@@ -1277,7 +1304,7 @@ window.runSatelliteCalculation = function() {
       }
     }
 
-    window.updateTransponderDisplay();
+    window.updateTransponderDisplay(false);
 
   } catch (err) {
     console.error('[Satellite Tracker] Calculation loop error:', err);
@@ -1310,7 +1337,6 @@ window.fetchLiveTLEs = async function(notify = true) {
       }
     });
 
-    // Save updated TLE elements and sync timestamp to localStorage
     try {
       localStorage.setItem('EZSHACK_CACHED_TLES', JSON.stringify(tleMapToCache));
       localStorage.setItem('EZSHACK_SAT_LAST_SYNC', Date.now().toString());

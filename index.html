@@ -209,10 +209,12 @@
       <!-- [CENTER PILLAR] Live VFO / Transceiver Telemetry Display -->
       <div class="flex items-center bg-shack-950 border border-shack-border rounded px-2 2xl:px-3 py-1 shadow-inner shrink-0">
         
-        <!-- VFO A / VFO B Toggle -->
-        <div class="inline-flex rounded border border-shack-700 bg-shack-900 p-0.5 text-[10px] font-mono font-bold mr-1.5 2xl:mr-2.5">
+        <!-- VFO A / VFO B / SUB Toggle -->
+        <div class="inline-flex items-center gap-0.5 rounded border border-shack-700 bg-shack-900 p-0.5 text-[10px] font-mono font-bold mr-1.5 2xl:mr-2.5">
           <button id="btnVfoA" onclick="setVfo('A')" title="Switch to VFO A" class="px-1.5 2xl:px-2 py-0.5 rounded bg-cyan-950 text-cyan-400 border border-cyan-800 shadow-sm transition">VFO A</button>
           <button id="btnVfoB" onclick="setVfo('B')" title="Switch to VFO B" class="px-1.5 2xl:px-2 py-0.5 rounded text-slate-400 hover:text-slate-200 transition">VFO B</button>
+          <button id="btnVfoSub" onclick="setVfo('SUB')" disabled title="Sub-Receiver VFO (Kenwood TS-2000 only)" class="px-1.5 2xl:px-2 py-0.5 rounded text-slate-500 border border-transparent opacity-35 cursor-not-allowed transition">SUB</button>
+          <button id="btnSubPwr" onclick="toggleSubRxPower()" title="Toggle TS-2000 Sub-Receiver Power (SB1/SB0)" class="hidden ml-0.5 px-1.5 py-0.5 rounded bg-shack-800 hover:bg-shack-700 text-slate-400 border border-shack-700 text-[9px] transition">OFF</button>
         </div>
 
         <!-- Interactive Digit-Box Frequency Readout -->
@@ -236,23 +238,23 @@
             <div id="bandDropdown" class="hidden absolute left-0 mt-2 w-60 bg-shack-900 border border-shack-border rounded shadow-2xl p-2 z-50 font-mono text-xs">
               <div class="text-[10px] text-slate-400 font-bold uppercase pb-1 mb-1 border-b border-shack-800 flex justify-between">
                 <span>SELECT BAND</span>
-                <span class="text-cyan-400">HF / VHF / UHF / SHF</span>
+                <span id="bandDropdownScope" class="text-cyan-400">HF / VHF / UHF</span>
               </div>
               <div class="grid grid-cols-4 gap-1 text-center">
-                <button onclick="selectBand('160m', 1840000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">160m</button>
-                <button onclick="selectBand('80m', 3573000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">80m</button>
-                <button onclick="selectBand('60m', 5357000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">60m</button>
-                <button onclick="selectBand('40m', 7074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">40m</button>
-                <button onclick="selectBand('30m', 10136000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">30m</button>
-                <button onclick="selectBand('20m', 14074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400 font-bold">20m</button>
-                <button onclick="selectBand('17m', 18100000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">17m</button>
-                <button onclick="selectBand('15m', 21074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">15m</button>
-                <button onclick="selectBand('12m', 24915000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">12m</button>
-                <button onclick="selectBand('10m', 28074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">10m</button>
-                <button onclick="selectBand('6m', 50313000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">6m</button>
-                <button onclick="selectBand('2m', 144200000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">2m</button>
-                <button onclick="selectBand('70cm', 432100000)" class="col-span-2 p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">70cm</button>
-                <button onclick="selectBand('23cm', 1296100000)" class="col-span-2 p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">23cm</button>
+                <button data-band="160m" onclick="selectBand('160m', 1840000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">160m</button>
+                <button data-band="80m" onclick="selectBand('80m', 3573000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">80m</button>
+                <button data-band="60m" onclick="selectBand('60m', 5357000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">60m</button>
+                <button data-band="40m" onclick="selectBand('40m', 7074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">40m</button>
+                <button data-band="30m" onclick="selectBand('30m', 10136000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">30m</button>
+                <button data-band="20m" onclick="selectBand('20m', 14074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400 font-bold">20m</button>
+                <button data-band="17m" onclick="selectBand('17m', 18100000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">17m</button>
+                <button data-band="15m" onclick="selectBand('15m', 21074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">15m</button>
+                <button data-band="12m" onclick="selectBand('12m', 24915000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">12m</button>
+                <button data-band="10m" onclick="selectBand('10m', 28074000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">10m</button>
+                <button data-band="6m" onclick="selectBand('6m', 50313000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-amber-400">6m</button>
+                <button data-band="2m" onclick="selectBand('2m', 144200000)" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">2m</button>
+                <button data-band="70cm" onclick="selectBand('70cm', 432100000)" class="col-span-2 p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">70cm</button>
+                <button data-band="23cm" onclick="selectBand('23cm', 1296100000)" class="col-span-2 p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">23cm</button>
               </div>
             </div>
           </div>
@@ -303,14 +305,14 @@
                 SELECT MODE
               </div>
               <div class="grid grid-cols-2 gap-1 text-center">
-                <button onclick="selectMode('USB')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400 font-bold">USB</button>
-                <button onclick="selectMode('LSB')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">LSB</button>
-                <button onclick="selectMode('CW')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">CW</button>
-                <button onclick="selectMode('DATA-U')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">DATA-U</button>
-                <button onclick="selectMode('AM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">AM</button>
-                <button onclick="selectMode('FM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">FM</button>
-                <button onclick="selectMode('C4FM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">C4FM</button>
-                <button onclick="selectMode('RTTY')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">RTTY</button>
+                <button data-mode="USB" onclick="selectMode('USB')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400 font-bold">USB</button>
+                <button data-mode="LSB" onclick="selectMode('LSB')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">LSB</button>
+                <button data-mode="CW" onclick="selectMode('CW')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">CW</button>
+                <button data-mode="DATA-U" onclick="selectMode('DATA-U')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">DATA-U</button>
+                <button data-mode="AM" onclick="selectMode('AM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">AM</button>
+                <button data-mode="FM" onclick="selectMode('FM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">FM</button>
+                <button data-mode="C4FM" onclick="selectMode('C4FM')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">C4FM</button>
+                <button data-mode="RTTY" onclick="selectMode('RTTY')" class="p-1 hover:bg-shack-800 rounded text-slate-200 hover:text-cyan-400">RTTY</button>
               </div>
             </div>
           </div>
@@ -780,6 +782,13 @@
                 </select>
                 <span class="text-[10px] text-slate-500 mt-1 block">Calibrates S0–S9 slope and S9+60dB decibel steps to match the connected radio family.</span>
               </div>
+              <div class="sm:col-span-2 flex items-center justify-between bg-shack-950 border border-shack-700 rounded p-2.5">
+                <div>
+                  <label for="cfgTs2000Ut20" class="font-bold text-slate-200 font-mono cursor-pointer">Kenwood TS-2000 UT-20 (1.2 GHz / 23cm Module)</label>
+                  <span class="text-[10px] text-slate-500 block">Enable only if the optional UT-20 1240–1300 MHz unit is installed (standard on TS-2000X).</span>
+                </div>
+                <input type="checkbox" id="cfgTs2000Ut20" class="w-4 h-4 accent-amber-500 cursor-pointer">
+              </div>
             </div>
           </div>
 
@@ -885,7 +894,6 @@
   <script src="widgets/satellite_catalog.js"></script>
   <script src="widgets/scratchpad.js"></script>
   <script src="widgets/solar.js"></script>
-      <script src="widgets/sub_receiver_widget.js"></script>
   <script src="widgets/widgets.js"></script>
   <script src="panes.js"></script>
 </body>

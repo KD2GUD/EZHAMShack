@@ -358,28 +358,8 @@ window.refreshWebLauncherUI = function(instId) {
   }).join('');
 };
 
-function isSubRxSupported(stateData) {
-  const caps = (stateData && stateData.capabilities) || (window.appState && window.appState.telemetry && window.appState.telemetry.capabilities) || [];
-  const xcvr = (stateData && stateData.xcvr) || (window.appState && window.appState.telemetry && window.appState.telemetry.xcvr) || '';
-  return caps.includes('sub_rx') || xcvr.toUpperCase().includes('2000') || xcvr.toUpperCase().includes('TS2000');
-}
-
 window.getCombinedCatalog = function() {
   const combined = [...WEB_TOOLS_CATALOG];
-
-  // Hardware Capability Gating: Only expose TS-2000 Sub-Receiver if hardware is present
-  if (isSubRxSupported()) {
-    combined.push({
-      id: 'sub_receiver',
-      title: 'VHF/UHF Sub-Receiver (Dual Watch)',
-      category: 'Radio Controls',
-      description: 'Dedicated secondary receiver controls for VHF/UHF dual-watch monitoring on the TS-2000.',
-      isNative: true,
-      widgetType: 'sub_receiver',
-      defaultW: 6,
-      defaultH: 8
-    });
-  }
 
   if (window.EZWidgets) {
     const seenIds = new Set(combined.map(item => item.id));
@@ -387,6 +367,7 @@ window.getCombinedCatalog = function() {
     Object.keys(window.EZWidgets).forEach(widgetKey => {
       const w = window.EZWidgets[widgetKey];
       if (!w || !w.id || seenIds.has(w.id)) return;
+      if (w.id === 'sub_receiver' || widgetKey === 'sub_receiver') return;
       seenIds.add(w.id);
 
       combined.push({
@@ -410,16 +391,6 @@ window.addEventListener('DOMContentLoaded', () => {
   window.populatePaneCatalog();
 });
 
-let catalogSubRxUpdated = false;
-window.addEventListener('ezshack:subrx', (e) => {
-  if (!catalogSubRxUpdated && isSubRxSupported(e.detail)) {
-    catalogSubRxUpdated = true;
-    if (typeof window.populatePaneCatalog === 'function') {
-      window.populatePaneCatalog();
-    }
-  }
-});
-
 function sanitizePaneList(paneList) {
   if (!Array.isArray(paneList)) return [];
   const hasLauncherAlready = paneList.some(
@@ -430,6 +401,12 @@ function sanitizePaneList(paneList) {
 
   paneList.forEach((p) => {
     if (!p) return;
+
+    // Strip legacy standalone sub_receiver panes (now integrated directly into the top VFO bar)
+    if (p.catalogId === 'sub_receiver' || p.widgetType === 'sub_receiver') {
+      return;
+    }
+
     const urlLower = (p.urlTemplate || '').toLowerCase();
     const isBlockedSite =
       BLOCKED_EMBED_IDS.has(p.catalogId) ||
@@ -437,7 +414,6 @@ function sanitizePaneList(paneList) {
       urlLower.includes('lightningmaps.org');
 
     if (isBlockedSite) {
-      // Remove broken iframe pane; swap in the button launcher once if not already on dashboard
       if (!injectedLauncher) {
         injectedLauncher = true;
         cleaned.push({
@@ -473,11 +449,16 @@ function ensureGridCoordinates() {
   if (!window.appState || !window.appState.panes) return;
 
   const beforeCount = window.appState.panes.length;
-  const hadBlocked = window.appState.panes.some(
-    p => p && (BLOCKED_EMBED_IDS.has(p.catalogId) || /voacap\.com|lightningmaps\.org/i.test(p.urlTemplate || ''))
+  const hadBlockedOrSub = window.appState.panes.some(
+    p => p && (
+      p.catalogId === 'sub_receiver' ||
+      p.widgetType === 'sub_receiver' ||
+      BLOCKED_EMBED_IDS.has(p.catalogId) ||
+      /voacap\.com|lightningmaps\.org/i.test(p.urlTemplate || '')
+    )
   );
   window.appState.panes = sanitizePaneList(window.appState.panes);
-  if (hadBlocked || window.appState.panes.length !== beforeCount) {
+  if (hadBlockedOrSub || window.appState.panes.length !== beforeCount) {
     if (typeof window.saveStateToStorage === 'function') window.saveStateToStorage();
   }
 
@@ -533,7 +514,6 @@ function findFirstOpenGridSlot(panes, width, height) {
     if (bottom > maxBottom) maxBottom = bottom;
   });
 
-  // Build occupied cell set (1-indexed x: 1..GRID_COLS, y: 1..maxBottom+h)
   const occupied = new Set();
   panes.forEach(p => {
     const px = p.x || 1;
@@ -547,7 +527,6 @@ function findFirstOpenGridSlot(panes, width, height) {
     }
   });
 
-  // Scan top-to-bottom, left-to-right for the first open w x h block
   for (let y = 1; y <= maxBottom; y++) {
     for (let x = 1; x <= GRID_COLS - w + 1; x++) {
       let fits = true;
@@ -573,7 +552,6 @@ function revealPaneInViewport(instanceId) {
     const card = document.getElementById(`pane-${instanceId}`);
     if (!card) return;
 
-    // Briefly highlight the newly added card so the operator sees where it landed
     card.classList.add('ring-2', 'ring-amber-400', 'transition-shadow');
     setTimeout(() => {
       card.classList.remove('ring-2', 'ring-amber-400');
@@ -592,191 +570,6 @@ function revealPaneInViewport(instanceId) {
       window.scrollTo({ top: targetScrollY, behavior: 'smooth' });
     }
   });
-}
-
-/* =====================================================================
-   NATIVE SUB-RECEIVER WIDGET BUILDER (TS-2000 VHF/UHF DUAL WATCH)
-   ===================================================================== */
-function renderSubReceiverWidget(body, pane) {
-  body.id = `subrx-body-${pane.instanceId}`;
-  body.className = 'flex-1 relative bg-shack-950 flex flex-col p-3 font-mono select-none overflow-y-auto';
-
-  body.innerHTML = `
-    <!-- Inactive Banner (shown on non-TS2000 rigs) -->
-    <div id="subrx-inactive-${pane.instanceId}" class="h-full flex flex-col items-center justify-center p-4 text-center text-xs text-slate-500 hidden">
-      <span class="text-amber-400 text-lg mb-1">⊘</span>
-      <span class="font-bold text-slate-300">SUB-RECEIVER INACTIVE</span>
-      <span class="text-[10px] mt-1 text-slate-600">Dual-watch VHF/UHF hardware is exclusive to Kenwood TS-2000.</span>
-    </div>
-
-    <!-- Active Widget Content -->
-    <div id="subrx-active-${pane.instanceId}" class="flex-1 flex flex-col justify-between">
-      <!-- Top Row: Title, Power & Mute -->
-      <div class="flex items-center justify-between pb-2 border-b border-shack-border">
-        <div class="flex items-center gap-1.5">
-          <span class="text-cyan-400 text-xs">◈</span>
-          <span class="text-xs font-bold tracking-wider text-slate-300">SUB VFO</span>
-          <span id="subrx-band-${pane.instanceId}" class="text-[10px] bg-cyan-950 text-cyan-400 border border-cyan-800 px-1.5 py-0.2 rounded font-sans">2m FM</span>
-        </div>
-        <div class="flex items-center gap-1.5">
-          <button id="subrx-pwr-${pane.instanceId}" class="px-2 py-0.5 rounded text-[11px] font-bold bg-shack-800 text-slate-400 border border-shack-700 hover:bg-shack-700 transition">
-            OFF
-          </button>
-          <button id="subrx-mute-${pane.instanceId}" class="px-2 py-0.5 rounded text-[11px] font-bold bg-shack-800 text-slate-400 border border-shack-700 hover:bg-shack-700 transition">
-            MUTE
-          </button>
-        </div>
-      </div>
-
-      <!-- Main Sub Frequency Readout -->
-      <div class="my-2 text-center py-2 bg-shack-900 border border-shack-border rounded shadow-inner">
-        <div id="subrx-freq-${pane.instanceId}" class="font-lcd text-2xl sm:text-3xl font-bold text-cyan-400 tracking-wider">
-          146.520.00
-        </div>
-        <div class="text-[10px] text-slate-500 mt-0.5">SUB-RECEIVER ACTIVE TUNER</div>
-      </div>
-
-      <!-- Quick Pick Channels & Steppers -->
-      <div class="grid grid-cols-5 gap-1 my-1">
-        <button class="subrx-qbtn px-1 py-1 rounded text-[10px] font-bold bg-shack-850 hover:bg-cyan-950 hover:text-cyan-400 hover:border-cyan-800 text-slate-300 border border-shack-border transition" data-freq="146520000">146.52</button>
-        <button class="subrx-qbtn px-1 py-1 rounded text-[10px] font-bold bg-shack-850 hover:bg-cyan-950 hover:text-cyan-400 hover:border-cyan-800 text-slate-300 border border-shack-border transition" data-freq="147000000">147.00</button>
-        <button class="subrx-qbtn px-1 py-1 rounded text-[10px] font-bold bg-shack-850 hover:bg-cyan-950 hover:text-cyan-400 hover:border-cyan-800 text-slate-300 border border-shack-border transition" data-freq="446000000">446.00</button>
-        <button class="subrx-sbtn px-1 py-1 rounded text-[10px] font-bold bg-shack-850 hover:bg-amber-950 hover:text-amber-400 hover:border-amber-800 text-slate-300 border border-shack-border transition" data-step="-25000">-25k</button>
-        <button class="subrx-sbtn px-1 py-1 rounded text-[10px] font-bold bg-shack-850 hover:bg-amber-950 hover:text-amber-400 hover:border-amber-800 text-slate-300 border border-shack-border transition" data-step="25000">+25k</button>
-      </div>
-
-      <!-- Sub S-Meter Bar -->
-      <div class="my-1.5">
-        <div class="flex items-center justify-between text-[10px] text-slate-400 mb-0.5">
-          <span>SUB SIGNAL</span>
-          <span id="subrx-smeter-val-${pane.instanceId}" class="font-bold text-cyan-400">S0</span>
-        </div>
-        <div class="h-2 w-full bg-slate-900 border border-shack-border rounded overflow-hidden">
-          <div id="subrx-smeter-bar-${pane.instanceId}" class="h-full bg-cyan-400 transition-all duration-75" style="width: 0%;"></div>
-        </div>
-      </div>
-
-      <!-- Sub AF Volume Slider -->
-      <div class="pt-1.5 border-t border-shack-border flex items-center gap-2">
-        <span class="text-[10px] text-slate-400 shrink-0">VOL</span>
-        <input type="range" id="subrx-vol-${pane.instanceId}" min="0" max="100" value="50" class="w-full accent-cyan-400 h-1 bg-slate-800 rounded cursor-pointer">
-        <span id="subrx-vol-val-${pane.instanceId}" class="text-[10px] text-slate-400 font-bold shrink-0 w-7 text-right">50%</span>
-      </div>
-    </div>
-  `;
-
-  const inactiveEl = body.querySelector(`#subrx-inactive-${pane.instanceId}`);
-  const activeEl = body.querySelector(`#subrx-active-${pane.instanceId}`);
-  const pwrBtn = body.querySelector(`#subrx-pwr-${pane.instanceId}`);
-  const muteBtn = body.querySelector(`#subrx-mute-${pane.instanceId}`);
-  const freqEl = body.querySelector(`#subrx-freq-${pane.instanceId}`);
-  const bandEl = body.querySelector(`#subrx-band-${pane.instanceId}`);
-  const smeterBar = body.querySelector(`#subrx-smeter-bar-${pane.instanceId}`);
-  const smeterVal = body.querySelector(`#subrx-smeter-val-${pane.instanceId}`);
-  const volSlider = body.querySelector(`#subrx-vol-${pane.instanceId}`);
-  const volVal = body.querySelector(`#subrx-vol-val-${pane.instanceId}`);
-
-  let currentSub = {
-    enabled: false,
-    frequency: 146520000,
-    band: '2m',
-    mode: 'FM',
-    smeter_val: 0,
-    volume: 50,
-    muted: false
-  };
-
-  function sendBridge(payload) {
-    if (window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
-      window.bridgeSocket.send(JSON.stringify(payload));
-    }
-  }
-
-  pwrBtn.addEventListener('click', () => {
-    sendBridge({ action: 'set_sub_power', enabled: !currentSub.enabled });
-  });
-
-  muteBtn.addEventListener('click', () => {
-    sendBridge({ action: 'set_sub_mute', muted: !currentSub.muted });
-  });
-
-  body.querySelectorAll('.subrx-qbtn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const f = parseInt(e.target.getAttribute('data-freq'), 10);
-      sendBridge({ action: 'set_sub_freq', freq: f });
-    });
-  });
-
-  body.querySelectorAll('.subrx-sbtn').forEach(btn => {
-    btn.addEventListener('click', (e) => {
-      const step = parseInt(e.target.getAttribute('data-step'), 10);
-      const nextFreq = (currentSub.frequency || 146520000) + step;
-      sendBridge({ action: 'set_sub_freq', freq: nextFreq });
-    });
-  });
-
-  volSlider.addEventListener('input', (e) => {
-    const v = parseInt(e.target.value, 10);
-    volVal.textContent = `${v}%`;
-    sendBridge({ action: 'set_sub_volume', volume: v });
-  });
-
-  function updateWidgetState(telemetryData) {
-    const supported = isSubRxSupported(telemetryData);
-    if (!supported) {
-      inactiveEl.classList.remove('hidden');
-      activeEl.classList.add('hidden');
-      return;
-    }
-
-    inactiveEl.classList.add('hidden');
-    activeEl.classList.remove('hidden');
-
-    const sub = (telemetryData && telemetryData.sub_rx) || (window.appState && window.appState.telemetry && window.appState.telemetry.subRx);
-    if (!sub) return;
-
-    currentSub = { ...currentSub, ...sub };
-
-    if (currentSub.enabled) {
-      pwrBtn.textContent = 'ON';
-      pwrBtn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-emerald-950 text-emerald-400 border border-emerald-800 transition shadow-[0_0_8px_#34d399]';
-    } else {
-      pwrBtn.textContent = 'OFF';
-      pwrBtn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-shack-800 text-slate-400 border border-shack-700 hover:bg-shack-700 transition';
-    }
-
-    if (currentSub.muted) {
-      muteBtn.textContent = 'MUTED';
-      muteBtn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-amber-950 text-amber-400 border border-amber-800 transition';
-    } else {
-      muteBtn.textContent = 'MUTE';
-      muteBtn.className = 'px-2 py-0.5 rounded text-[11px] font-bold bg-shack-800 text-slate-400 border border-shack-700 hover:bg-shack-700 transition';
-    }
-
-    if (currentSub.enabled && currentSub.frequency) {
-      const parts = (currentSub.frequency / 1000000).toFixed(5).split('.');
-      freqEl.textContent = `${parts[0]}.${parts[1].slice(0, 3)}.${parts[1].slice(3, 5)}`;
-      freqEl.className = 'font-lcd text-2xl sm:text-3xl font-bold text-cyan-400 tracking-wider';
-    } else {
-      freqEl.textContent = 'STANDBY';
-      freqEl.className = 'font-lcd text-2xl sm:text-3xl font-bold text-slate-600 tracking-wider';
-    }
-
-    bandEl.textContent = `${currentSub.band || '2m'} ${currentSub.mode || 'FM'}`;
-
-    const rawSmeter = currentSub.enabled ? (currentSub.smeter_val || 0) : 0;
-    const pct = Math.min(100, Math.max(0, Math.round((rawSmeter / 15.0) * 100)));
-    smeterBar.style.width = `${pct}%`;
-    smeterVal.textContent = rawSmeter > 0 ? `S${Math.round(rawSmeter)}` : 'S0';
-
-    if (document.activeElement !== volSlider && currentSub.volume !== undefined) {
-      volSlider.value = currentSub.volume;
-      volVal.textContent = `${currentSub.volume}%`;
-    }
-  }
-
-  window.addEventListener('ezshack:subrx', (e) => updateWidgetState(e.detail));
-  updateWidgetState(window.appState && window.appState.telemetry);
 }
 
 function getEffectivePaneUrl(pane) {
@@ -919,19 +712,13 @@ window.renderPanes = function() {
         'satellite_tracker': 'satelliteTracker',
         'callsign_lookup': 'callsignLookup',
         'psk_reporter': 'psk_reporter',
-        'sub_receiver': 'sub_receiver',
         'web_launcher': 'webLauncher'
       };
 
       const rawKey = pane.widgetType || pane.catalogId || '';
       const resolvedKey = KEY_MAP[rawKey] || rawKey;
 
-      // 1. Native Sub-Receiver Widget
-      if (resolvedKey === 'sub_receiver' || rawKey === 'sub_receiver') {
-        renderSubReceiverWidget(body, pane);
-      }
-      // 2. Non-Native Web Embeds (DXMaps, KC2G MUF, RBN, Custom Embed URLs)
-      else if (isEmbedPane) {
+      if (isEmbedPane) {
         body.className = 'flex-1 relative bg-shack-950 overflow-hidden flex flex-col';
         const safeUrl = escapeHtmlAttr(effectiveUrl);
         const jsSafeTitle = escapeJsString(pane.title);
@@ -966,9 +753,7 @@ window.renderPanes = function() {
             </div>
           </div>
         `;
-      }
-      // 3. Native EZWidgets Modules
-      else {
+      } else {
         body.className = 'flex-1 relative bg-shack-950 overflow-hidden flex flex-col';
         const widgetObj = window.EZWidgets && (
           window.EZWidgets[resolvedKey] || 
@@ -982,8 +767,7 @@ window.renderPanes = function() {
           if (result instanceof HTMLElement) {
             body.appendChild(result);
           }
-        } 
-        else if (typeof window.buildNativeWidget === 'function') {
+        } else if (typeof window.buildNativeWidget === 'function') {
           const el = window.buildNativeWidget(resolvedKey, pane.instanceId);
           if (el instanceof HTMLElement) body.appendChild(el);
         }
@@ -1068,7 +852,6 @@ function resolveTemplateUrl(urlTemplate) {
 
   let resolved = urlTemplate;
 
-  // If callsign is not configured yet (N0CALL), strip &spot={callsign} so RBN shows live spots instead of empty results
   if (!hasRealCall) {
     resolved = resolved.replace(/[?&]spot=\{callsign\}/gi, '');
   }
@@ -1493,7 +1276,6 @@ window.loadWorkspacePreset = function(num) {
     }
   }
 
-  // Fall back to pre-defined default layout matching P1..P4 button labels
   const defaultLayout = DEFAULT_MEMORY_LAYOUTS[num];
   if (defaultLayout) {
     activePresetId = num;

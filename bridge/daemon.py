@@ -78,7 +78,7 @@ DEFAULT_STATION_PROFILE = {
 
 HF_6M_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m"]
 ALL_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm"]
-TS2000_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm", "23cm"]
+TS2000_UT20_BANDS = ["160m", "80m", "60m", "40m", "30m", "20m", "17m", "15m", "12m", "10m", "6m", "2m", "70cm", "23cm"]
 
 
 def freq_to_band(freq_hz: int) -> str:
@@ -345,9 +345,11 @@ class BridgeCoordinator:
         self._ptt_start_timestamp: Optional[float] = None
         self._tune_optimistic_until: float = 0.0
         self._freq_optimistic_until: float = 0.0
+        self._sub_freq_optimistic_until: float = 0.0
         self._mode_optimistic_until: float = 0.0
         self._pending_freq: Optional[Tuple[int, str]] = None
         self._freq_writer_task: Optional[asyncio.Task] = None
+        self.ut20_installed: bool = False
         self.active_vfo = "A"
 
         has_sub = getattr(self.rig, "supports_sub_rx", False)
@@ -368,6 +370,7 @@ class BridgeCoordinator:
             "tuner_tuning": False,
             "xcvr": self.rig.name,
             "rig_id": getattr(self.rig, "rig_id", "custom"),
+            "ut20_installed": self.ut20_installed,
             "min_freq_hz": min_hz,
             "max_freq_hz": max_hz,
             "capabilities": self._build_capabilities(),
@@ -402,26 +405,27 @@ class BridgeCoordinator:
 
     def _build_supported_bands(self) -> List[str]:
         """Returns the list of amateur bands supported by the loaded transceiver profile."""
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if rig_id == "ts2000":
+            return list(TS2000_UT20_BANDS if self.ut20_installed else ALL_BANDS)
         explicit = getattr(self.rig, "supported_bands", None)
         if isinstance(explicit, (list, tuple)) and len(explicit) > 0:
             return list(explicit)
-        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
         if rig_id in ("ic7300", "ic7610", "ftdx10", "ftdx101", "ft891", "ts590", "ts890"):
             return list(HF_6M_BANDS)
-        if rig_id == "ts2000":
-            return list(TS2000_BANDS)
         return list(ALL_BANDS)
 
     def _build_freq_bounds(self) -> Tuple[int, int]:
         """Returns (min_freq_hz, max_freq_hz) for the loaded transceiver profile."""
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if rig_id == "ts2000":
+            return (30_000, 1_300_000_000 if self.ut20_installed else 450_000_000)
+
         explicit_min = getattr(self.rig, "min_freq_hz", None)
         explicit_max = getattr(self.rig, "max_freq_hz", None)
         if isinstance(explicit_min, int) and isinstance(explicit_max, int) and explicit_max > explicit_min:
             return (explicit_min, explicit_max)
 
-        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
-        if rig_id == "ts2000":
-            return (30_000, 1_300_000_000)
         if rig_id == "ft991a":
             return (30_000, 470_000_000)
         if rig_id in ("ft857d", "ft857", "ft817", "ft817nd", "ft897", "ft897d"):
@@ -432,8 +436,11 @@ class BridgeCoordinator:
 
     def _sync_rig_metadata(self):
         """Updates state metadata and hardware capability flags from the active rig profile."""
+        if hasattr(self.rig, "set_ut20_installed"):
+            self.rig.set_ut20_installed(self.ut20_installed)
         self.state["xcvr"] = self.rig.name
         self.state["rig_id"] = getattr(self.rig, "rig_id", "custom")
+        self.state["ut20_installed"] = self.ut20_installed
         self.state["capabilities"] = self._build_capabilities()
         self.state["supported_bands"] = self._build_supported_bands()
         min_hz, max_hz = self._build_freq_bounds()
@@ -456,6 +463,15 @@ class BridgeCoordinator:
             }
         elif not has_sub:
             self.state["sub_rx"] = None
+
+    async def set_ut20(self, installed: bool):
+        """Enables or disables optional Kenwood TS-2000 UT-20 1.2 GHz (23cm) unit support."""
+        self.ut20_installed = bool(installed)
+        self._sync_rig_metadata()
+        logger.info("TS-2000 UT-20 1.2 GHz module state: %s (max_freq_hz=%d)",
+                    "INSTALLED" if self.ut20_installed else "NOT INSTALLED",
+                    self.state["max_freq_hz"])
+        await self.broadcast_state()
 
     def _cmd_get_tuner(self) -> Optional[bytes]:
         if hasattr(self.rig, "cmd_get_tuner"):
@@ -556,6 +572,11 @@ class BridgeCoordinator:
         logger.info("Set built-in ATU on %s: %s", self.rig.name, "ON" if enabled else "BYPASS")
         await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=0.05)
 
+    def _parse_sub_freq_reply(self, resp: bytes) -> Optional[int]:
+        if hasattr(self.rig, "parse_sub_frequency"):
+            return self.rig.parse_sub_frequency(resp)
+        return self.rig.parse_frequency(resp)
+
     async def initialize(self):
         loop = asyncio.get_running_loop()
         connected = await loop.run_in_executor(None, self.serial.connect)
@@ -604,7 +625,7 @@ class BridgeCoordinator:
                         self.state["sub_rx"]["enabled"] = sub_on
                         if sub_on:
                             fc_resp = await self.serial.execute_command(self.rig.cmd_get_sub_frequency(), expect_reply=True)
-                            sub_freq = self.rig.parse_frequency(fc_resp)
+                            sub_freq = self._parse_sub_freq_reply(fc_resp)
                             if sub_freq:
                                 self.state["sub_rx"]["frequency"] = sub_freq
                                 self.state["sub_rx"]["band"] = freq_to_band(sub_freq)
@@ -728,11 +749,19 @@ class BridgeCoordinator:
     async def set_sub_frequency(self, freq_hz: int):
         if not self.state.get("sub_rx"):
             return
-        self.state["sub_rx"]["frequency"] = freq_hz
-        self.state["sub_rx"]["band"] = freq_to_band(freq_hz)
+        clamped = max(144_000_000, min(450_000_000, int(freq_hz)))
+        self.state["sub_rx"]["frequency"] = clamped
+        self.state["sub_rx"]["band"] = freq_to_band(clamped)
+        self._sub_freq_optimistic_until = time.time() + 0.75
         if hasattr(self.rig, "cmd_set_sub_frequency"):
-            cmd = self.rig.cmd_set_sub_frequency(freq_hz)
-            await self.serial.execute_command(cmd, expect_reply=False)
+            cmd = self.rig.cmd_set_sub_frequency(clamped)
+            await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=0.02)
+
+    async def set_sub_mode(self, mode_str: str):
+        if not self.state.get("sub_rx"):
+            return
+        clean = "AM" if str(mode_str).upper().strip() == "AM" else "FM"
+        self.state["sub_rx"]["mode"] = clean
 
     async def set_sub_power(self, enabled: bool):
         if not self.state.get("sub_rx"):
@@ -744,7 +773,7 @@ class BridgeCoordinator:
             if enabled:
                 await asyncio.sleep(0.08)
                 fc_resp = await self.serial.execute_command(self.rig.cmd_get_sub_frequency(), expect_reply=True)
-                freq = self.rig.parse_frequency(fc_resp)
+                freq = self._parse_sub_freq_reply(fc_resp)
                 if freq:
                     self.state["sub_rx"]["frequency"] = freq
                     self.state["sub_rx"]["band"] = freq_to_band(freq)
@@ -825,6 +854,10 @@ class BridgeCoordinator:
                     fa_resp = await self.serial.execute_command(active_cmd, expect_reply=True)
                     freq = self.rig.parse_frequency(fa_resp)
                     if freq and time.time() >= self._freq_optimistic_until and self._pending_freq is None:
+                        # Auto-unlock UT-20 23cm support if physical TS-2000 front panel reports >= 1240 MHz
+                        if getattr(self.rig, "rig_id", "") == "ts2000" and freq >= 1_240_000_000 and not self.ut20_installed:
+                            self.ut20_installed = True
+                            self._sync_rig_metadata()
                         self.state["frequency"] = freq
                         self.state["band"] = freq_to_band(freq)
                         self.state["connected"] = True
@@ -878,11 +911,12 @@ class BridgeCoordinator:
                         self.state["sub_rx"]["enabled"] = sub_on
 
                 elif sub_active and tick % 4 == 3 and not self.state["ptt"]:
-                    fc_resp = await self.serial.execute_command(self.rig.cmd_get_sub_frequency(), expect_reply=True)
-                    sub_f = self.rig.parse_frequency(fc_resp)
-                    if sub_f:
-                        self.state["sub_rx"]["frequency"] = sub_f
-                        self.state["sub_rx"]["band"] = freq_to_band(sub_f)
+                    if time.time() >= self._sub_freq_optimistic_until:
+                        fc_resp = await self.serial.execute_command(self.rig.cmd_get_sub_frequency(), expect_reply=True)
+                        sub_f = self._parse_sub_freq_reply(fc_resp)
+                        if sub_f and time.time() >= self._sub_freq_optimistic_until:
+                            self.state["sub_rx"]["frequency"] = sub_f
+                            self.state["sub_rx"]["band"] = freq_to_band(sub_f)
 
                     sm1_resp = await self.serial.execute_command(self.rig.cmd_get_sub_smeter(), expect_reply=True)
                     self.state["sub_rx"]["smeter_val"] = self.rig.parse_sub_smeter(sm1_resp)
@@ -972,8 +1006,14 @@ class BridgeCoordinator:
                     elif action == "set_tuner":
                         await self.set_tuner(bool(data.get("enabled", False)))
 
+                    elif action == "set_ut20":
+                        await self.set_ut20(bool(data.get("installed", False)))
+
                     elif action == "set_sub_freq":
                         await self.set_sub_frequency(int(data.get("freq", 146520000)))
+
+                    elif action == "set_sub_mode":
+                        await self.set_sub_mode(str(data.get("mode", "FM")))
 
                     elif action == "set_sub_power":
                         await self.set_sub_power(bool(data.get("enabled", False)))
