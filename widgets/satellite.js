@@ -158,7 +158,7 @@ let userHasManuallySelected = false;
 let catalogPassRankings = {};
 let lastPassScanTimestamp = 0;
 
-let dopplerMode = 'ALL';
+let dopplerMode = 'LINEAR';
 let forceDopplerTest = false;
 let currentCalculatedDoppler70cm = 0;
 
@@ -734,6 +734,9 @@ window.tuneRigToTransponder = function(transponderIdx) {
     return;
   }
 
+  // Always default Doppler shift to SSB/CW (LINEAR) when satellite tracking is engaged
+  window.setDopplerMode('LINEAR');
+
   const isLinear = ['USB', 'LSB', 'CW', 'CW-U', 'CW-L'].includes(t.mode);
 
   isTuningInProgress = true;
@@ -797,7 +800,7 @@ window.tuneRigToTransponder = function(transponderIdx) {
   window.updateTransponderDisplay(true);
 
   if (typeof window.showToast === 'function') {
-    window.showToast(`🛰️ ${sat.name} Armed. Doppler Tracking Active.`);
+    window.showToast(`🛰️ ${sat.name} Armed (Doppler: SSB/CW).`);
   }
 };
 
@@ -1084,7 +1087,6 @@ window.updateTransponderDisplay = function(forceRebuild = false) {
     }
   }
 
-  // Only rebuild the DOM when structure/buttons actually change — never on 180ms telemetry ticks!
   const renderKey = [
     sat.id,
     rigLabel,

@@ -910,17 +910,6 @@ class BridgeCoordinator:
                     if sub_on is not None and self.state.get("sub_rx"):
                         self.state["sub_rx"]["enabled"] = sub_on
 
-                elif sub_active and tick % 4 == 3 and not self.state["ptt"]:
-                    if time.time() >= self._sub_freq_optimistic_until:
-                        fc_resp = await self.serial.execute_command(self.rig.cmd_get_sub_frequency(), expect_reply=True)
-                        sub_f = self._parse_sub_freq_reply(fc_resp)
-                        if sub_f and time.time() >= self._sub_freq_optimistic_until:
-                            self.state["sub_rx"]["frequency"] = sub_f
-                            self.state["sub_rx"]["band"] = freq_to_band(sub_f)
-
-                    sm1_resp = await self.serial.execute_command(self.rig.cmd_get_sub_smeter(), expect_reply=True)
-                    self.state["sub_rx"]["smeter_val"] = self.rig.parse_sub_smeter(sm1_resp)
-
                 elif tick % 2 == 0:
                     tx_resp = await self.serial.execute_command(self.rig.cmd_get_ptt(), expect_reply=True)
                     is_tx = self.rig.parse_ptt(tx_resp)
@@ -952,6 +941,17 @@ class BridgeCoordinator:
                         smtr_resp = await self.serial.execute_command(cmd_smtr, expect_reply=True)
                         self.state["smeter_val"] = self.rig.parse_smeter(smtr_resp)
                         self.state["pwr_out"] = 0.0
+
+                        if sub_active:
+                            if tick % 8 == 3:
+                                sm1_resp = await self.serial.execute_command(self.rig.cmd_get_sub_smeter(), expect_reply=True)
+                                self.state["sub_rx"]["smeter_val"] = self.rig.parse_sub_smeter(sm1_resp)
+                            elif time.time() >= self._sub_freq_optimistic_until:
+                                fc_resp = await self.serial.execute_command(self.rig.cmd_get_sub_frequency(), expect_reply=True)
+                                sub_f = self._parse_sub_freq_reply(fc_resp)
+                                if sub_f and time.time() >= self._sub_freq_optimistic_until:
+                                    self.state["sub_rx"]["frequency"] = sub_f
+                                    self.state["sub_rx"]["band"] = freq_to_band(sub_f)
 
                 await self.broadcast_state()
 

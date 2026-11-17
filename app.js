@@ -403,7 +403,6 @@ window.updateRigControlAvailability = function() {
   const atuSupported = window.isRigCapabilitySupported('tuner');
   const subRxSupported = window.isRigCapabilitySupported('sub_rx');
 
-  // If radio changed to a single-receiver rig while SUB was selected, return to VFO A
   if (!subRxSupported && (window.appState.vfo.active || 'A') === 'SUB') {
     window.appState.vfo.active = 'A';
     const slotA = window.appState.vfo.vfoA || {};
@@ -805,7 +804,6 @@ window.checkBandPrivilege = function(freqHz, mode, licClass) {
   const mhz = freqHz / 1000000.0;
   const m = (mode || '').toUpperCase();
 
-  // US 60m Channelized & WRC-15 Continuous Band Validation (FCC Part 97 eff. Feb 13, 2026)
   if (mhz >= 5.33 && mhz <= 5.41) {
     if (licClass !== 'EXTRA' && licClass !== 'GENERAL') {
       return { status: 'OOB', reason: '60m requires General or Amateur Extra license' };
@@ -1651,7 +1649,6 @@ window.setVfo = function(vfoId) {
   const oldActive = window.appState.vfo.active || 'A';
   if (oldActive === vfoId) return;
 
-  // Save outgoing slot state
   if (oldActive === 'A' || oldActive === 'B') {
     const oldSlot = oldActive === 'A' ? 'vfoA' : 'vfoB';
     window.appState.vfo[oldSlot] = {
@@ -1706,7 +1703,6 @@ window.setVfo = function(vfoId) {
   window.updateMeterDisplay(window.appState.telemetry);
   window.scheduleSaveState();
 
-  // Only send set_vfo to physical transceiver when switching between Main VFO A and VFO B
   if (oldActive !== 'SUB' && window.bridgeSocket && window.bridgeSocket.readyState === WebSocket.OPEN) {
     window.bridgeSocket.send(JSON.stringify({ action: "set_vfo", vfo: vfoId }));
     if (window.appState.vfo.frequency) window.sendFreqToBridge(window.appState.vfo.frequency);
