@@ -805,10 +805,23 @@ class BridgeCoordinator:
         logger.info("Configuring Satellite Split: RX=%d (%s) | TX=%d (%s) | Tone=%.1f Hz",
                     rx_freq, rx_mode, tx_freq, tx_mode, tone_hz)
 
-        self._freq_optimistic_until = time.time() + 1.5
+        self._freq_optimistic_until = time.time() + 4.0
         timed_ops = self.rig.cmd_configure_split(rx_freq, tx_freq, rx_mode, tx_mode, tone_hz)
         for cmd, settle in timed_ops:
             await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=settle)
+
+        # FT-857D / FT-817 / FT-897 uses blind VFO toggle (0x81). If the radio started on VFO B,
+        # Split ON (0x02) reveals tx_freq on VFO A instead of rx_freq — detect & re-run once.
+        rig_id = getattr(self.rig, "rig_id", "").strip().lower()
+        if rig_id in ("ft857d", "ft857", "ft817", "ft817nd", "ft897", "ft897d") and tx_freq > 0 and abs(tx_freq - rx_freq) > 10000:
+            await asyncio.sleep(0.15)
+            check_resp = await self.serial.execute_command(self.rig.cmd_get_frequency("A"), expect_reply=True)
+            actual_rx = self.rig.parse_frequency(check_resp)
+            if actual_rx and abs(actual_rx - tx_freq) <= 500:
+                logger.info("FT-857D started on VFO B; re-running split sequence so VFO A=RX and VFO B=TX+TEN.")
+                self._freq_optimistic_until = time.time() + 4.0
+                for cmd, settle in timed_ops:
+                    await self.serial.execute_command(cmd, expect_reply=False, custom_settle_sec=settle)
 
         self.active_vfo = "A"
         self.state["vfo"] = "A"

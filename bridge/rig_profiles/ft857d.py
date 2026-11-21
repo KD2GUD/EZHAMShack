@@ -183,39 +183,44 @@ class FT857DRig(BaseRig):
     def cmd_configure_split(
         self, rx_freq: int, tx_freq: int, rx_mode: str, tx_mode: str, tone_hz: float = 0.0
     ) -> List[Tuple[bytes, float]]:
+        has_uplink = bool(tx_freq and tx_freq > 0)
         ops: List[Tuple[bytes, float]] = [
-            (b"\x00\x00\x00\x00\x82", 0.06),               # 1. Split OFF initially
-            (self.cmd_set_frequency(rx_freq, "A"), 0.06),     # 2. Program RX freq on VFO A
-            (self.cmd_set_mode(rx_mode), 0.06),               # 3. Program RX mode on VFO A
-            (b"\x8A\x00\x00\x00\x0A", 0.06),               # 4. Keep CTCSS/TSQ OFF on RX VFO A
-            (b"\x00\x00\x00\x00\x81", 0.08),               # 5. Toggle to VFO B (TX VFO)
-            (self.cmd_set_frequency(tx_freq, "B"), 0.06),     # 6. Program TX freq on VFO B
-            (self.cmd_set_mode(tx_mode), 0.06),               # 7. Program TX mode on VFO B
+            (b"\x00\x00\x00\x00\x82", 0.12),               # 1. Split OFF initially
+            (self.cmd_set_frequency(rx_freq, "A"), 0.15),     # 2. Program RX freq on VFO A
+            (self.cmd_set_mode(rx_mode), 0.15),               # 3. Program RX mode on VFO A
+            (b"\x8A\x00\x00\x00\x0A", 0.12),               # 4. Keep CTCSS/TSQ OFF on RX VFO A
         ]
 
-        # 8. Configure CTCSS tone & encoder on VFO B while VFO B is active
-        if tone_hz and tone_hz > 0:
-            tenths = f"{int(round(tone_hz * 10)):04d}"
-            t_hi = (int(tenths[0]) << 4) | int(tenths[1])
-            t_lo = (int(tenths[2]) << 4) | int(tenths[3])
-            # FT-857D 0x0B expects [TX_HI, TX_LO, RX_HI, RX_LO, 0x0B]
-            ops.append((bytes([t_hi, t_lo, t_hi, t_lo, 0x0B]), 0.08))
-            # 0x4A = CTCSS Encoder ON ('TON'), avoiding 0x2A Tone Squelch ('TSQ')
-            ops.append((b"\x4A\x00\x00\x00\x0A", 0.08))
-        else:
-            ops.append((b"\x8A\x00\x00\x00\x0A", 0.06))
+        if has_uplink:
+            ops.extend([
+                (b"\x00\x00\x00\x00\x81", 0.18),           # 5. Toggle to VFO B (TX VFO)
+                (self.cmd_set_frequency(tx_freq, "B"), 0.18), # 6. Program TX freq on VFO B
+                (self.cmd_set_mode(tx_mode), 0.15),           # 7. Program TX mode on VFO B
+            ])
 
-        ops.extend([
-            (b"\x00\x00\x00\x00\x81", 0.08),               # 9. Toggle back to VFO A (RX)
-            (b"\x00\x00\x00\x00\x02", 0.06),               # 10. Split ON (RX=VFO A, TX=VFO B)
-        ])
+            # 8. Configure CTCSS tone & encoder on VFO B while VFO B is active
+            if tone_hz and tone_hz > 0:
+                tenths = f"{int(round(tone_hz * 10)):04d}"
+                t_hi = (int(tenths[0]) << 4) | int(tenths[1])
+                t_lo = (int(tenths[2]) << 4) | int(tenths[3])
+                # Assert CTCSS Encoder ON ('TON', 0x4A), write tone BCD (0x0B EEPROM settle), then re-assert 0x4A
+                ops.append((b"\x4A\x00\x00\x00\x0A", 0.15))
+                ops.append((bytes([t_hi, t_lo, t_hi, t_lo, 0x0B]), 0.22))
+                ops.append((b"\x4A\x00\x00\x00\x0A", 0.15))
+            else:
+                ops.append((b"\x8A\x00\x00\x00\x0A", 0.12))
+
+            ops.extend([
+                (b"\x00\x00\x00\x00\x81", 0.18),           # 9. Toggle back to VFO A (RX)
+                (b"\x00\x00\x00\x00\x02", 0.12),           # 10. Split ON (RX=VFO A, TX=VFO B)
+            ])
         return ops
 
     def cmd_disengage_satellite(self) -> List[Tuple[bytes, float]]:
         return [
-            (b"\x00\x00\x00\x00\x82", 0.06),  # Split OFF
-            (b"\x00\x00\x00\x00\x81", 0.08),  # Toggle to VFO B
-            (b"\x8A\x00\x00\x00\x0A", 0.06),  # CTCSS OFF on VFO B
-            (b"\x00\x00\x00\x00\x81", 0.08),  # Toggle back to VFO A
-            (b"\x8A\x00\x00\x00\x0A", 0.06),  # CTCSS OFF on VFO A
+            (b"\x00\x00\x00\x00\x82", 0.12),  # Split OFF
+            (b"\x00\x00\x00\x00\x81", 0.18),  # Toggle to VFO B
+            (b"\x8A\x00\x00\x00\x0A", 0.15),  # CTCSS OFF on VFO B
+            (b"\x00\x00\x00\x00\x81", 0.18),  # Toggle back to VFO A
+            (b"\x8A\x00\x00\x00\x0A", 0.15),  # CTCSS OFF on VFO A
         ]
