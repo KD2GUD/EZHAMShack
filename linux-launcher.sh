@@ -22,7 +22,7 @@ echo ""
 
 if [ ! -f "$VENV_PYTHON" ]; then
     echo "[ERROR] Virtual environment (.venv) not found at: $VENV_PYTHON"
-    echo "Run: chmod +x install.sh && ./install.sh"
+    echo "Run: chmod +x linux-install.sh && ./linux-install.sh"
     exit 1
 fi
 

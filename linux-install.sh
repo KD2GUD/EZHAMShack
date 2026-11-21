@@ -7,13 +7,13 @@ VENV_DIR="$INSTALL_DIR/.venv"
 VENV_PYTHON="$VENV_DIR/bin/python"
 
 echo "=========================================="
-echo "   EZHAMShack Linux Setup (v1.0.0-Beta)   "
+echo "   EZHAMShack Linux Setup (v1.0.0)   "
 echo "=========================================="
 
 # Ensure installer and launcher scripts are executable
-chmod +x "$INSTALL_DIR/install.sh" 2>/dev/null || true
-if [ -f "$INSTALL_DIR/launcher.sh" ]; then
-    chmod +x "$INSTALL_DIR/launcher.sh"
+chmod +x "$INSTALL_DIR/linux-install.sh" 2>/dev/null || true
+if [ -f "$INSTALL_DIR/linux-launcher.sh" ]; then
+    chmod +x "$INSTALL_DIR/linux-launcher.sh"
 fi
 
 # 1. Verify Python 3.10+
@@ -100,9 +100,9 @@ fi
 # 5. Create Desktop Menu Entry & Configure Serial Port Permissions
 echo ""
 echo "[5/5] Configuring desktop shortcut & serial port permissions..."
-if [ -f "$INSTALL_DIR/launcher.sh" ]; then
-    chmod +x "$INSTALL_DIR/launcher.sh"
-    echo "  Verified executable permission on launcher.sh"
+if [ -f "$INSTALL_DIR/linux-launcher.sh" ]; then
+    chmod +x "$INSTALL_DIR/linux-launcher.sh"
+    echo "  Verified executable permission on linux-launcher.sh"
 fi
 
 DESKTOP_DIR="$HOME/.local/share/applications"
@@ -114,7 +114,7 @@ cat > "$DESKTOP_FILE" <<EOF
 Type=Application
 Name=EZHAMShack
 Comment=Amateur Radio Station Dashboard & Direct CAT Bridge
-Exec="$INSTALL_DIR/launcher.sh"
+Exec="$INSTALL_DIR/linux-launcher.sh"
 Path=$INSTALL_DIR
 Terminal=true
 Categories=HamRadio;Utility;Network;
@@ -161,5 +161,5 @@ fi
 
 echo ""
 echo "========================================================"
-echo " Setup complete! Launch EZHAMShack with ./launcher.sh    "
+echo " Setup complete! Launch EZHAMShack with ./linux-launcher.sh    "
 echo "========================================================"

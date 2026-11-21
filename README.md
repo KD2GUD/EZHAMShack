@@ -25,8 +25,8 @@ EZHAMShack consolidates station control, propagation tools, satellite tracking, 
 | Resource-heavy desktop middleware (FLRIG, etc.) | Direct Python serial CAT engine (`bridge/daemon.py`) with transceiver relay settling delays, coalesced tuning, and auto-detection |
 | Multiple disconnected windows (CAT, satellites, solar, spots) | Single 16-column modular fluid grid dashboard with saved memory workspaces (`P1`–`P4` + custom `MEM` slots) |
 | Manual frequency/mode look-ups and band-edge guesswork | Real-time FCC Part 97 privilege guard, 60m channelized/WRC-15 power compliance, and per-rig frequency ceiling enforcement |
-| Fragmented satellite tuning tools | SGP4 orbital propagation, polar radar view, audible AOS alerts, Doppler retuning, and automated cross-band split/CTCSS |
-| Rigid single-receiver displays | Hardware-aware capability gating (dedicated VHF/UHF Sub-Receiver panel on the Kenwood TS-2000; disabled VHF/UHF sat tuning on HF+6m rigs) |
+| Fragmented satellite tuning tools | SGP4 orbital propagation, polar radar view, audible AOS alerts, SSB/CW-default Doppler retuning, and automated cross-band split/CTCSS |
+| Rigid single-receiver displays | Hardware-aware capability gating (`SUB` VFO + sub-power toggle on the Kenwood TS-2000; disabled VHF/UHF sat tuning on HF+6m rigs) |
 | Proprietary log formats | Built-in ADIF 3.1.4 logger (`logs/shack_log.adi`) ready for direct `.adi` export and import into external logbook software |
 
 ---
@@ -37,16 +37,16 @@ EZHAMShack consolidates station control, propagation tools, satellite tracking, 
   Native asynchronous Python serial driver (`pyserial`) with hardware-specific command pacing, relay settling delays, and coalesced frequency writes for lag-free dial tuning. Automatically probes USB serial ports, baud rates, and transceiver profiles on startup.
 
 - **WebSocket Telemetry Bridge (`ws://127.0.0.1:8088`)**  
-  High-speed bidirectional event bridge pushing live frequency, band, mode, VFO A/B state, calibrated S-meter, forward power, SWR, ATU status, and sub-receiver telemetry directly into the browser dashboard.
+  High-speed bidirectional event bridge pushing live frequency, band, mode, VFO A/B/SUB state, calibrated S-meter, forward power, SWR, ATU status, and sub-receiver telemetry directly into the browser dashboard.
 
 - **Hardware-Aware Capability Gating**  
   Dynamically adapts UI controls and available widgets to the connected radio:
-  - Enables the dedicated **VHF/UHF Sub-Receiver** dual-watch widget on the **Kenwood TS-2000**.
+  - Enables the **`SUB`** VFO selector and **`ON`/`OFF`** sub-power toggle alongside `VFO A` and `VFO B` on the **Kenwood TS-2000** (`FC`, `SB`, `SM1`, `AG1`), while keeping `SUB` ghosted/disabled on single-receiver radios such as the FT-991A.
   - Ghosts software AF Gain, TX Power, and ATU controls on legacy radios that rely on physical knobs/menus (**Yaesu FT-857D / FT-817 / FT-897**).
-  - Enforces per-rig tuning limits (`74.8 MHz` on the **IC-7300**, `470 MHz` on the **FT-991A** / **FT-857D**, `1300 MHz` on the **TS-2000**) and disables VHF/UHF satellite `Tune & Sync` on HF+6m-only rigs.
+  - Enforces per-rig tuning limits (`74.8 MHz` on the **IC-7300**, `470 MHz` on the **FT-991A** / **FT-857D**, `450 MHz` standard on the **TS-2000** or `1300 MHz` when the optional **UT-20** module is enabled in Settings) and disables VHF/UHF satellite `Tune & Sync` on HF+6m-only rigs.
 
 - **SGP4 Satellite Tracker & Doppler Control (`widgets/satellite.js`)**  
-  Real-time SGP4 orbital propagation (`satellite.js`), next-pass countdown rankings, polar radar azimuth/elevation plot, audible 1-minute/AOS chimes, continuous Doppler correction, and automated cross-band split + CTCSS tone configuration.
+  Real-time SGP4 orbital propagation (`satellite.js`), next-pass countdown rankings, polar radar azimuth/elevation plot, audible 1-minute/AOS chimes, Doppler retuning (defaulting to **SSB/CW** when engaged, with a **Bench Test Mode** toggle), and automated cross-band split + CTCSS tone configuration.
 
 - **Built-In ADIF 3.1.4 Logbook (`widgets/logger.js`)**  
   Logs QSOs directly to `logs/shack_log.adi` on disk with automatic frequency, band, mode, UTC timestamp, station profile, and CQ/ITU zone population, plus one-click `.adi` download for importing into external logbooks (QRZ, LoTW, Log4OM, N1MM, etc.).
@@ -85,16 +85,16 @@ EZHAMShack consolidates station control, propagation tools, satellite tracking, 
 | Model | Status | CAT Protocol & Baud | Frequency Coverage | Special Hardware Support | Satellite Split & CTCSS |
 | --- | --- | --- | --- | --- | --- |
 | **Yaesu FT-991A** | Supported (`v1.0.0`) | Yaesu ASCII (`38400` baud) | `30 kHz – 470 MHz` | Built-in ATU, RF Power, AF Gain | Automated (`FT2`/`FT3`/`SV`) |
-| **Yaesu FT-857D / 817 / 897** | Supported (`v1.0.0`) | Legacy 5-Byte Binary (`38400` baud, `8N2`) | `100 kHz – 470 MHz` | UI capability-gated for knob/menu controls | Automated (`0x02`/`0x0B`/`0x4A`) |
+| **Yaesu FT-857D** *(FT-817ND / 897D untested)* | Supported (`v1.0.0`) | Legacy 5-Byte Binary (`38400` baud, `8N2`) | `100 kHz – 470 MHz` | UI capability-gated for knob/menu controls | Automated (`0x02`/`0x0B`/`0x4A`) |
 | **Icom IC-7300** | Supported (`v1.0.0`) | Icom CI-V (`19200` baud, Addr `0x94`) | `30 kHz – 74.8 MHz` | Built-in ATU, USB-D/LSB-D, VHF/UHF sat gated | HF/6m Split (`0x0F`/`0x1B`) |
-| **Kenwood TS-2000** | Supported (`v1.0.0`) | Kenwood ASCII (`9600` baud) | `30 kHz – 1300 MHz` | Full VHF/UHF Sub-Receiver (`FC`/`SB`/`SM1`), ATU | Automated (`SP1`/`TN`/`TO1`) |
+| **Kenwood TS-2000** | Supported (`v1.0.0`) | Kenwood ASCII (`9600` baud) | `30 kHz – 450 MHz` (`1300 MHz` w/ UT-20) | Header `SUB` VFO (`FC`/`SB`/`SM1`/`AG1`), ATU | Automated (`FR`/`FT`/`TN`/`TO1`) |
 
 ---
 
 ## System & Display Requirements
 
 - **Operating System:** Windows 10/11 or Linux (Ubuntu, Debian, Linux Mint, Raspberry Pi OS, Fedora, Arch).
-- **Python Runtime:** Python **3.10 or newer** (installed and isolated automatically inside `.venv` by the setup scripts).
+- **Python Runtime:** Python **3.10 or newer** (verified/installed automatically into `.venv` by the setup scripts).
 - **Browser:** Modern Chromium-based browser (Chrome, Edge, Brave) or Firefox.
 - **Display Resolution (16:9 Widescreen):**
   - **Minimum:** `1366 × 768` (16:9 HD) — uses compact header and preset spacing.
@@ -106,6 +106,8 @@ EZHAMShack consolidates station control, propagation tools, satellite tracking, 
 
 ## Installation & Setup Guide
 
+*(For a condensed quick-start checklist, see `Quick-Start.txt` in the repository root.)*
+
 ### 1. Windows Setup (Windows 10 / 11)
 
 #### Step A: Install USB / Serial Chipset Drivers
@@ -113,9 +115,9 @@ Before connecting your transceiver, install the USB driver matching your radio o
 
 - **Icom IC-7300:** Install the **Silicon Labs CP210x Universal Windows Driver** from Icom or Silicon Labs. Set `CI-V Baud Rate = 19200` and `CI-V Address = 94h` in the IC-7300 connectors menu.
 - **Yaesu FT-991A:** Install the **Silicon Labs CP210x** Virtual COM Port driver from Yaesu. Windows will create two COM ports (*Enhanced* and *Standard*); EZHAMShack automatically finds the *Enhanced* CAT port at `38400` baud.
-- **Yaesu FT-857D / FT-817 / FT-897 & Kenwood TS-2000:** Install the driver for your USB-to-CAT interface cable (**FTDI**, **Prolific PL2303**, or **WCH CH340/CH341**).
+- **Yaesu FT-857D / FT-817 / FT-897 & Kenwood TS-2000:** Install the driver for your USB-to-CAT interface cable (**FTDI**, **Prolific PL2303**, or **WCH CH340/CH341**). For the TS-2000, confirm Menu 56 is set to `9600` bps and the internal TNC is turned off.
 
-#### Step B: Download & Run the Automated Installer
+#### Step B: Download, Unblock & Run the Automated Installer
 1. **Clone or Download the Repository:**
    ```bash
    git clone https://github.com/KD2GUD/EZHAMShack.git
@@ -123,24 +125,24 @@ Before connecting your transceiver, install the USB driver matching your radio o
    ```
    *(Or download the release ZIP, extract it to a permanent folder such as `C:\EZHAMShack`, and open that folder.)*
 
-2. **Run `install.bat`:**
-   Double-click `install.bat` (or run it from Command Prompt). It automatically:
+2. **Unblock & Run `win-install.bat`:**
+   Windows blocks downloaded `.bat` scripts by default—right-click `win-install.bat` and `win-launcher.bat`, open **Properties**, check **Unblock**, and click **Apply**. Then double-click `win-install.bat` (or run it from Command Prompt). It automatically:
    - Verifies Python 3.10+ (installing Python 3.12 via `winget` if missing).
    - Creates an isolated virtual environment in `.venv\`.
    - Installs `pyserial`, `websockets`, and all packages listed in `requirements.txt`.
-   - Creates a desktop shortcut for **EZShack**.
+   - Initializes `logs\shack_log.adi` and creates a desktop shortcut (`EZShack.lnk`) pointing to `win-launcher.bat`.
 
-3. **Launch the Station (`launcher.bat`):**
+3. **Launch the Station (`win-launcher.bat`):**
    - Power on your transceiver and connect its USB/CAT cable.
-   - Double-click **`launcher.bat`** (or the **EZShack** desktop shortcut).
+   - Double-click **`win-launcher.bat`** (or the **EZShack** desktop shortcut).
    - On startup, the launcher checks GitHub for updates and upgrades Python dependencies automatically before launching `bridge.daemon` and opening `index.html` in your browser.
 
 ---
 
 ### 2. Linux Setup (Ubuntu / Debian / Mint / Raspberry Pi OS)
 
-#### Step A: Grant Serial Port Permissions (`dialout`) & Reboot
-Linux restricts access to USB serial devices (`/dev/ttyUSB0`, `/dev/ttyACM0`) to members of the `dialout` group (or `uucp` on Arch-based distributions). **You must reboot after adding your user to this group**, or the bridge daemon will receive `Permission denied` when scanning USB ports.
+#### Step A: Grant Serial Port Permissions (`dialout` / `uucp`) & Reboot
+Linux restricts access to USB serial devices (`/dev/ttyUSB0`, `/dev/ttyACM0`) to members of the `dialout` group (or `uucp` on Arch/Manjaro). `linux-install.sh` will also check this and offer to add your group via `sudo`. **Log out and back in (or reboot)** after being added so group permissions take effect before scanning USB ports.
 
 ```bash
 # Add your user to the serial port group (Debian/Ubuntu/Mint/RPi OS)
@@ -162,23 +164,23 @@ After rebooting, open a terminal in your `EZHAMShack` directory:
 git clone https://github.com/KD2GUD/EZHAMShack.git
 cd EZHAMShack
 
-# Make the installer and station launcher executable
-chmod +x install.sh launcher.sh
+# Make the Linux scripts executable
+chmod +x *.sh
 
 # Run the automated setup script
-./install.sh
+./linux-install.sh
 ```
 
-`install.sh` creates the `.venv` virtual environment and installs `pyserial`, `websockets`, and all dependencies from `requirements.txt`.
+`linux-install.sh` creates the `.venv` virtual environment, installs `pyserial`, `websockets`, and dependencies from `requirements.txt`, initializes `logs/shack_log.adi`, and creates the desktop menu entry for `linux-launcher.sh`.
 
-#### Step C: Launch the Station (`./launcher.sh`)
+#### Step C: Launch the Station (`./linux-launcher.sh`)
 Power on your transceiver, connect the USB/CAT cable, and run:
 
 ```bash
-./launcher.sh
+./linux-launcher.sh
 ```
 
-On startup, `launcher.sh` checks for internet connectivity, pulls any new GitHub updates, verifies/upgrades the `.venv` Python runtime and libraries, starts `python -m bridge.daemon`, and opens `index.html` in your default browser.
+On startup, `linux-launcher.sh` checks for internet connectivity, pulls any new GitHub updates, verifies/upgrades the `.venv` Python runtime and libraries, starts `python -m bridge.daemon`, and opens `index.html` in your default browser.
 
 ---
 

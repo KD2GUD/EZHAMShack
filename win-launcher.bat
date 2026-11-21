@@ -19,7 +19,7 @@ set "VENV_PYTHON=%~dp0.venv\Scripts\python.exe"
 if exist "%VENV_PYTHON%" goto :CHECK_UPDATES
 
 echo [ERROR] Virtual environment (.venv) not found at: %VENV_PYTHON%
-echo Run: install.bat
+echo Run: win-install.bat
 pause
 exit /b 1
 

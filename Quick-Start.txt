@@ -1,0 +1,79 @@
+================================================================================
+  EZHAMShack v1.0.0 — Quick Start & Installation Guide
+================================================================================
+
+Supported and Tested Transceivers:
+  * Yaesu FT-991A
+  * Yaesu FT-857D (and FT-817ND / FT-897D untested)
+  * Icom IC-7300
+  * Kenwood TS-2000
+
+Prerequisites:
+  * Python 3.10 or newer installed on your computer - install scripts will check.
+  * Transceiver connected via USB / CAT interface cable and powered ON
+  * USB driver(s) for your radio and/or USB to radio interface installed (Windows)
+
+
+--------------------------------------------------------------------------------
+  1. WINDOWS INSTALLATION & LAUNCH
+--------------------------------------------------------------------------------
+
+STEP 1: Unblock the Batch Files (Required Security Step)
+  Windows blocks downloaded or ZIP-extracted .bat scripts by default.
+  Before running them, unblock both Windows batch files:
+
+    1. Right-click "win-install.bat" and choose "Properties".
+    2. At the bottom of the "General" tab, check the "Unblock" box.
+    3. Click "Apply", then click "OK".
+    4. Repeat Steps 1-3 for "win-launcher.bat".
+
+  (Note: If Windows SmartScreen still prompts "Windows protected your PC"
+   on first run, click "More info" and then click "Run anyway".)
+
+STEP 2: Run the First-Time Installer
+  Double-click "win-install.bat" to verify/install Python 3.12, create the
+  local Python virtual environment, and install required libraries.
+
+STEP 3: Start EZHAMShack
+  Double-click "win-launcher.bat" (or the EZShack desktop shortcut) to start
+  the CAT bridge daemon and open the console in your default web browser.
+
+
+--------------------------------------------------------------------------------
+  2. LINUX INSTALLATION & LAUNCH
+--------------------------------------------------------------------------------
+
+STEP 1: Make the Shell Scripts Executable
+  Open a terminal inside the EZHAMShack folder and run:
+
+    chmod +x *.sh
+
+STEP 2: Run the First-Time Installer
+  In the terminal, run:
+
+    ./linux-install.sh
+
+  (Note: linux-install.sh will also check your serial port permissions and
+   offer to add your user to the "dialout" or "uucp" group automatically.
+   If added, log out and log back in once for permissions to take effect.
+   To add manually on Debian/Ubuntu/Mint/Fedora: sudo usermod -aG dialout $USER)
+
+STEP 3: Start EZHAMShack
+  In the terminal, run:
+
+    ./linux-launcher.sh
+
+
+--------------------------------------------------------------------------------
+  3. TRANSCEIVER QUICK NOTES & FIRST-TIME CONSOLE SETUP
+--------------------------------------------------------------------------------
+
+  * Kenwood TS-2000: Ensure Menu 56 (COM Baud Rate) is set to 9600 bps and
+    the internal packet TNC is turned OFF ("TNC" must not appear on the LCD,
+    as the TNC shares the rear DB-9 serial port with PC CAT control).
+  * Station Profile: When the dashboard opens for the first time, click the
+    Settings gear icon (top right) -> "Station Profile" to enter your Call
+    Sign, License Class, and Maidenhead Grid Square.
+  * Shutting Down: Use the red Power button in the top-right corner of the
+    dashboard to cleanly stop the Python CAT bridge before closing the tab.
+================================================================================

@@ -11,7 +11,7 @@ function Pause-Exit([int]$Code = 0) {
 
 try {
     Write-Host "==========================================" -ForegroundColor DarkYellow
-    Write-Host "     EZSHACK STATION SETUP v1.0.0-BETA   " -ForegroundColor Cyan
+    Write-Host "     EZSHACK STATION SETUP v1.0.0         " -ForegroundColor Cyan
     Write-Host "==========================================" -ForegroundColor DarkYellow
 
     # 1. Verify / Locate Python runtime (Filtering out Windows Store stubs)
@@ -128,12 +128,12 @@ if (-not (Test-Path $AdifPath)) {
     Write-Host "  Initialized master ADIF log file: $AdifPath" -ForegroundColor Green
 }
 
-    # 5. Create Desktop Shortcut to launcher.bat
+    # 5. Create Desktop Shortcut to win-launcher.bat
     Write-Host "`n[5/5] Creating Desktop Shortcut..." -ForegroundColor Yellow
-    $LauncherBat = Join-Path $InstallDir "launcher.bat"
+    $LauncherBat = Join-Path $InstallDir "win-launcher.bat"
 
     if (-not (Test-Path $LauncherBat)) {
-        Write-Host "  [WARNING] launcher.bat not found in $InstallDir." -ForegroundColor Yellow
+        Write-Host "  [WARNING] win-launcher.bat not found in $InstallDir." -ForegroundColor Yellow
     }
 
     $WshShell = New-Object -ComObject WScript.Shell
@@ -149,12 +149,12 @@ if (-not (Test-Path $AdifPath)) {
     }
 
     $Shortcut.Save()
-    Write-Host "  Desktop shortcut created: EZShack.lnk -> launcher.bat" -ForegroundColor Green
+    Write-Host "  Desktop shortcut created: EZShack.lnk -> win-launcher.bat" -ForegroundColor Green
 
     Write-Host "`n========================================================" -ForegroundColor Cyan
     Write-Host " Setup complete!                                         " -ForegroundColor Green
     Write-Host " Direct CAT engine runs via .venv using pyserial.       " -ForegroundColor Green
-    Write-Host " Launch EZShack from your desktop icon or launcher.bat. " -ForegroundColor Cyan
+    Write-Host " Launch EZShack from your desktop icon or win-launcher.bat. " -ForegroundColor Cyan
     Write-Host "========================================================`n" -ForegroundColor Cyan
 
     Pause-Exit 0
